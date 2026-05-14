@@ -1,0 +1,13 @@
+loaders:
+  - modules:
+      - haystack_integrations.document_stores.db2.document_store
+    search_path: [../src]
+processors:
+  - type: filter
+    documented_only: true
+    skip_empty_modules: true
+renderer:
+  description: Db2 integration for Haystack
+  id: integrations-db2
+  filename: db2.md
+  title: Db2
