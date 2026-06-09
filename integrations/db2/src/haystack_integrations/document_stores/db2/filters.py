@@ -153,9 +153,12 @@ def _parse_comparison_condition(condition: dict[str, Any]) -> tuple[str, list[An
     elif operator == "!=":
         return f"{json_path} != ?", [_format_value_for_json(value)]
     elif operator == ">":
-        # Cast both sides to DECFLOAT for numeric comparison
-        # DB2 requires explicit type path: JSON_VALUE returns VARCHAR, which we cast to DECFLOAT
-        # Also cast the comparison value to ensure type compatibility
+        # Double CAST required for DB2 JSON numeric comparisons:
+        # 1. JSON_VALUE returns VARCHAR by default (DB2 limitation)
+        # 2. First CAST to VARCHAR(100) ensures consistent string format
+        # 3. Second CAST to DECFLOAT enables numeric comparison operators
+        # 4. Parameter also cast to DECFLOAT for type compatibility
+        # Without this, comparisons would be lexicographic (e.g., "9" > "10")
         return f"CAST(CAST({json_path} AS VARCHAR(100)) AS DECFLOAT) > CAST(? AS DECFLOAT)", [value]
     elif operator == ">=":
         return f"CAST(CAST({json_path} AS VARCHAR(100)) AS DECFLOAT) >= CAST(? AS DECFLOAT)", [value]

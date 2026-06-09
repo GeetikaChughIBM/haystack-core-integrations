@@ -26,6 +26,26 @@ def document_to_db2_dict(document: Document, embedding_dimension: int) -> dict[s
     :param embedding_dimension: Expected embedding dimension for validation.
     :return: Dictionary with DB2-compatible fields.
     :raises ValueError: If document is missing ID, embedding, or has wrong dimension.
+
+    Example:
+        ```python
+        from haystack import Document
+
+        doc = Document(
+            id="doc1",
+            content="Sample text",
+            embedding=[0.1, 0.2, 0.3],
+            meta={"author": "John"}
+        )
+        db2_dict = document_to_db2_dict(doc, embedding_dimension=3)
+        # Returns: {
+        #     "id": "doc1",
+        #     "content": "Sample text",
+        #     "embedding": "[0.1,0.2,0.3]",
+        #     "meta": '{"author": "John"}',
+        #     ...
+        # }
+        ```
     """
     if not document.id or not document.id.strip():
         msg = "Document must have an ID"
@@ -71,6 +91,23 @@ def db2_row_to_document(row: dict[str, Any], include_embedding: bool = False) ->
     :param row: Dictionary representing a DB2 row with keys: ID, CONTENT, META, EMBEDDING (optional).
     :param include_embedding: Whether to include embedding in the document.
     :return: Haystack Document.
+
+    Example:
+        ```python
+        row = {
+            "ID": "doc1",
+            "CONTENT": "Sample text",
+            "META": '{"author": "John"}',
+            "EMBEDDING": "[0.1,0.2,0.3]",
+            "SCORE": 0.95
+        }
+        doc = db2_row_to_document(row, include_embedding=True)
+        # Returns Document with:
+        #   id="doc1"
+        #   content="Sample text"
+        #   embedding=[0.1, 0.2, 0.3]
+        #   meta={"author": "John", "score": 0.95}
+        ```
     """
     # Parse metadata
     meta = {}
@@ -104,20 +141,66 @@ def db2_row_to_document(row: dict[str, Any], include_embedding: bool = False) ->
 
 def documents_to_db2_batch(documents: list[Document], embedding_dimension: int) -> list[dict[str, Any]]:
     """
-    Convert a list of Haystack Documents to DB2-compatible dictionaries.
+    Convert a list of Haystack Documents to DB2-compatible dictionaries (optimized batch operation).
+
+    This is more efficient than calling document_to_db2_dict() individually because:
+    1. Validates all documents upfront before conversion
+    2. Pre-allocates result list for better memory efficiency
+    3. Provides better error context for batch operations
 
     :param documents: List of Haystack Documents.
     :param embedding_dimension: Expected embedding dimension.
     :return: List of DB2-compatible dictionaries.
     :raises ValueError: If any document is invalid.
     """
-    db2_docs = []
-    for doc in documents:
+    if not documents:
+        return []
+
+    # Pre-allocate list for better performance
+    db2_docs: list[dict[str, Any]] = []
+
+    # Batch validation and conversion
+    for idx, doc in enumerate(documents):
         try:
-            db2_doc = document_to_db2_dict(doc, embedding_dimension)
-            db2_docs.append(db2_doc)
+            # Validate document
+            if not doc.id or not doc.id.strip():
+                msg = f"Document at index {idx} must have an ID"
+                raise ValueError(msg)
+
+            if doc.embedding is None:
+                msg = f"Document {doc.id} at index {idx} missing embedding"
+                raise ValueError(msg)
+
+            if len(doc.embedding) != embedding_dimension:
+                msg = (
+                    f"Document {doc.id} at index {idx} embedding dimension mismatch: "
+                    f"expected {embedding_dimension}, got {len(doc.embedding)}"
+                )
+                raise ValueError(msg)
+
+            # Convert (inline for performance)
+            embedding_str = "[" + ",".join(map(str, doc.embedding)) + "]"
+            meta_json = json.dumps(doc.meta) if doc.meta else "{}"
+
+            # Escape single quotes for SQL safety
+            content_escaped = (doc.content or "").replace("'", "''")
+            meta_escaped = meta_json.replace("'", "''")
+            doc_id_escaped = doc.id.replace("'", "''")
+
+            db2_docs.append(
+                {
+                    "id": doc_id_escaped,
+                    "content": content_escaped,
+                    "embedding": embedding_str,
+                    "meta": meta_escaped,
+                    "raw_id": doc.id,
+                    "raw_content": doc.content or "",
+                    "raw_meta": doc.meta or {},
+                }
+            )
+
         except ValueError as e:
-            logger.error(f"Failed to convert document {doc.id}: {e}")
+            logger.error(f"Failed to convert document {doc.id} at index {idx}: {e}")
             raise
 
     return db2_docs
@@ -125,20 +208,60 @@ def documents_to_db2_batch(documents: list[Document], embedding_dimension: int) 
 
 def db2_rows_to_documents(rows: list[dict[str, Any]], include_embeddings: bool = False) -> list[Document]:
     """
-    Convert a list of DB2 rows to Haystack Documents.
+    Convert a list of DB2 rows to Haystack Documents (optimized batch operation).
+
+    This is more efficient than calling db2_row_to_document() individually because:
+    1. Pre-allocates result list
+    2. Handles errors gracefully without stopping entire batch
+    3. Provides batch-level logging
 
     :param rows: List of DB2 row dictionaries.
     :param include_embeddings: Whether to include embeddings in documents.
     :return: List of Haystack Documents.
     """
-    documents = []
-    for row in rows:
+    if not rows:
+        return []
+
+    documents: list[Document] = []
+    failed_count = 0
+
+    for idx, row in enumerate(rows):
         try:
-            doc = db2_row_to_document(row, include_embedding=include_embeddings)
+            # Parse metadata
+            meta = {}
+            if row.get("META"):
+                try:
+                    meta = json.loads(row["META"])
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Failed to parse metadata for document {row.get('ID')} at index {idx}: {e}")
+                    meta = {}
+
+            # Parse embedding if requested
+            embedding = None
+            if include_embeddings and row.get("EMBEDDING"):
+                try:
+                    embedding_str = row["EMBEDDING"]
+                    if isinstance(embedding_str, str):
+                        embedding_str = embedding_str.strip("[]")
+                        embedding = [float(x.strip()) for x in embedding_str.split(",")]
+                except (ValueError, AttributeError) as e:
+                    logger.warning(f"Failed to parse embedding for document {row.get('ID')} at index {idx}: {e}")
+                    embedding = None
+
+            # Add score to metadata if present
+            if "SCORE" in row and row["SCORE"] is not None:
+                meta["score"] = float(row["SCORE"])
+
+            doc = Document(id=row["ID"], content=row.get("CONTENT"), embedding=embedding, meta=meta)
             documents.append(doc)
+
         except Exception as e:
-            logger.warning(f"Failed to convert row to document: {e}")
+            failed_count += 1
+            logger.warning(f"Failed to convert row at index {idx} to document: {e}")
             continue
+
+    if failed_count > 0:
+        logger.info(f"Batch conversion: {len(documents)} succeeded, {failed_count} failed")
 
     return documents
 

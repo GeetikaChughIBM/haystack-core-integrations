@@ -25,7 +25,6 @@ DEFAULT_PORT = 50000
 DEFAULT_HOST = "localhost"
 PROTOCOL = "TCPIP"
 VECTOR_TYPE = "FLOAT32"
-DECIMAL_PRECISION = "DECIMAL(18,2)"
 MAX_VECTOR_DIMENSION = 16000  # DB2 VECTOR type maximum dimension limit
 
 
@@ -49,7 +48,7 @@ class DB2DocumentStore:
     - Embedding retrieval sets `doc.score = 1 - distance` for cosine distance (higher score = better match).
       For cosine distance (range 0-2): score 1.0 = identical, score 0.0 = orthogonal, score -1.0 = opposite.
     - All batch operations use `self.batch_size` for consistency with user configuration.
-    - Pagination (offset parameter) is now supported in `query_by_embedding()` for retrieving result pages.
+    - Pagination (offset parameter) is supported in `query_by_embedding()` for retrieving result pages.
 
     Usage example (local connection with TCP/IP):
     ```python
@@ -99,11 +98,13 @@ class DB2DocumentStore:
         table_name: str = "haystack_documents",
         schema_name: str | None = None,
         embedding_dimension: int = 384,
-        distance_metric: Literal["cosine", "euclidean", "inner_product"] = "cosine",
+        distance_metric: Literal["cosine", "euclidean", "dot"] = "cosine",
         recreate_table: bool = False,
         batch_size: int = 100,
         embedding_model: str | None = None,
         validate_embedding_model: bool = True,
+        use_ssl: bool = False,
+        ssl_certificate: str | None = None,
     ) -> None:
         """
         Initialize DB2DocumentStore.
@@ -123,7 +124,7 @@ class DB2DocumentStore:
         :param port: Database port (default: 50000).
         :param table_name: Table name for documents.
         :param embedding_dimension: Embedding vector dimension.
-        :param distance_metric: Distance metric (cosine, euclidean, inner_product).
+        :param distance_metric: Distance metric (cosine, euclidean, dot).
         :param recreate_table: Drop and recreate table if True.
         :param batch_size: Number of documents to process in each batch during write operations.
                           Default is 100. Larger batches may improve performance but use more memory.
@@ -135,6 +136,11 @@ class DB2DocumentStore:
                                         If True (default), raises an error if the provided embedding_model
                                         doesn't match the model stored in the database.
                                         Set to False only if you're certain about model compatibility.
+        :param use_ssl: Enable SSL/TLS encryption for the database connection (default: False).
+                       When True, the connection will use SSL/TLS to encrypt data in transit.
+        :param ssl_certificate: Path to SSL certificate file for server verification (optional).
+                               If provided, the certificate will be used to verify the server's identity.
+                               Example: "/path/to/server-cert.pem"
         :raises DocumentStoreError: If parameters are invalid or connection fails.
         :raises ValueError: If embedding model validation fails (model mismatch detected).
         """
@@ -160,25 +166,56 @@ class DB2DocumentStore:
         self._password = password
         self._hostname = hostname
         self._port = port
+        self._use_ssl = use_ssl
+        self._ssl_certificate = ssl_certificate
 
         # Build actual connection string for use
         if connection_string:
             # Method 1: Connection string provided
-            self._connection_string = connection_string.resolve_value()
+            conn_str = connection_string.resolve_value()
+
+            # Normalize connection string to uppercase for checking
+            conn_str_upper = conn_str.upper() if conn_str else ""
+
+            # Add SSL parameters if enabled and not already present
+            if use_ssl and conn_str:
+                # Check if SECURITY=SSL is already in the connection string (case-insensitive)
+                if "SECURITY=SSL" not in conn_str_upper:
+                    # Ensure connection string ends with semicolon
+                    if not conn_str.endswith(";"):
+                        conn_str += ";"
+                    conn_str += "SECURITY=SSL;"
+
+                # Add SSL certificate if provided and not already present
+                if ssl_certificate and "SSLSERVERCERTIFICATE=" not in conn_str_upper:
+                    if not conn_str.endswith(";"):
+                        conn_str += ";"
+                    conn_str += f"SSLServerCertificate={ssl_certificate};"
+
+            self._connection_string = conn_str
         elif database and username and password:
             user = username.resolve_value()
             pwd = password.resolve_value()
 
+            # Build base connection string
             if hostname:
                 # Method 2: Remote with explicit TCP/IP
-                self._connection_string = (
+                conn_str = (
                     f"DATABASE={database};HOSTNAME={hostname};PORT={port};PROTOCOL={PROTOCOL};UID={user};PWD={pwd};"
                 )
             else:
                 # Method 3: Local with explicit TCP/IP (uses localhost)
-                self._connection_string = (
+                conn_str = (
                     f"DATABASE={database};HOSTNAME={DEFAULT_HOST};PORT={port};PROTOCOL={PROTOCOL};UID={user};PWD={pwd};"
                 )
+
+            # Add SSL/TLS parameters if enabled
+            if use_ssl:
+                conn_str += "SECURITY=SSL;"
+                if ssl_certificate:
+                    conn_str += f"SSLServerCertificate={ssl_certificate};"
+
+            self._connection_string = conn_str
         else:
             msg = (
                 "Provide either: (1) connection_string, "
@@ -214,11 +251,11 @@ class DB2DocumentStore:
             self._drop_metadata_table_if_exists()
         self._create_table_if_not_exists()
         self._create_metadata_table_if_not_exists()
-        
+
         # Validate embedding model consistency
         if self.validate_embedding_model and self.embedding_model:
             self._validate_model_consistency()
-        
+
         self._table_initialized = True
 
     @staticmethod
@@ -268,7 +305,7 @@ class DB2DocumentStore:
         :param metric: Distance metric to validate.
         :raises DocumentStoreError: If metric is invalid.
         """
-        valid_metrics = ["cosine", "euclidean", "inner_product"]
+        valid_metrics = ["cosine", "euclidean", "dot"]
         if metric not in valid_metrics:
             msg = f"Invalid distance metric '{metric}'. Must be one of: {', '.join(valid_metrics)}"
             raise DocumentStoreError(msg)
@@ -291,7 +328,6 @@ class DB2DocumentStore:
                 # Double-check after acquiring lock
                 if not hasattr(self._local, "conn") or self._local.conn is None:
                     try:
-                        # Create new connection for this thread
                         self._local.conn = ibm_db.connect(self._connection_string, "", "")  # type: ignore[arg-type]
                         logger.debug(f"Created new DB2 connection for thread {threading.current_thread().name}")
                     except Exception as e:
@@ -301,15 +337,20 @@ class DB2DocumentStore:
         return self._local.conn
 
     def _table_exists(self) -> bool:
-        """Check if table exists."""
+        """
+        Check if the document table exists in the database.
+
+        :return: True if table exists, False otherwise.
+        """
         conn = self._get_connection()
-        check_sql = "SELECT COUNT(*) as cnt FROM SYSCAT.TABLES WHERE TABNAME = ? AND TABSCHEMA = CURRENT SCHEMA"
+        check_sql, params = self.query_builder.build_table_exists()
 
         try:
             stmt = ibm_db.prepare(conn, check_sql)
             if stmt is False:
                 return False
-            ibm_db.bind_param(stmt, 1, self.table_name.upper())  # type: ignore[arg-type]
+            for idx, param in enumerate(params, 1):
+                ibm_db.bind_param(stmt, idx, param)  # type: ignore[arg-type]
             ibm_db.execute(stmt)  # type: ignore[arg-type]
             row = ibm_db.fetch_assoc(stmt)  # type: ignore[arg-type]
             if row is False or not isinstance(row, dict):
@@ -320,7 +361,11 @@ class DB2DocumentStore:
             return False
 
     def _create_table_if_not_exists(self) -> None:
-        """Create table if it doesn't exist."""
+        """
+        Create the document table if it doesn't already exist.
+
+        :raises DocumentStoreError: If table creation fails.
+        """
         if self._table_exists():
             logger.info(f"Table {self.table_name} exists")
             return
@@ -336,53 +381,72 @@ class DB2DocumentStore:
             raise DocumentStoreError(msg) from e
 
     def _drop_table_if_exists(self) -> None:
-        """Drop table if exists."""
+        """
+        Drop the document table if it exists.
+
+        Logs a warning if the drop operation fails but does not raise an exception.
+        """
         if not self._table_exists():
             return
 
         conn = self._get_connection()
         try:
-            ibm_db.exec_immediate(conn, f"DROP TABLE {self.qualified_table_name}")
+            drop_sql = self.query_builder.build_drop_table()
+            ibm_db.exec_immediate(conn, drop_sql)
             logger.info(f"Dropped table {self.qualified_table_name}")
         except Exception as e:
             logger.warning(f"Error dropping table: {e}")
 
     def _get_metadata_table_name(self) -> str:
-        """Get the fully qualified metadata table name."""
+        """
+        Get the fully qualified metadata table name.
+
+        :return: Metadata table name, optionally schema-qualified.
+        """
         metadata_table = f"{self.table_name}_metadata"
         return f"{self.schema_name}.{metadata_table}" if self.schema_name else metadata_table
 
     def _metadata_table_exists(self) -> bool:
-        """Check if metadata table exists."""
+        """
+        Check if the metadata table exists in the database.
+
+        :return: True if metadata table exists, False otherwise.
+        """
         conn = self._get_connection()
         metadata_table_name = self._get_metadata_table_name()
-        # Extract just the table name without schema for the query
-        table_only = metadata_table_name.split('.')[-1]
-        
-        sql = "SELECT COUNT(*) as cnt FROM SYSCAT.TABLES WHERE TABNAME = ? AND TABSCHEMA = CURRENT SCHEMA"
-        stmt = ibm_db.prepare(conn, sql)
-        ibm_db.bind_param(stmt, 1, table_only.upper())
+
+        # Handle schema-qualified table names
+        if "." in metadata_table_name:
+            schema, table = metadata_table_name.split(".", 1)
+            sql = "SELECT COUNT(*) as cnt FROM SYSCAT.TABLES WHERE TABNAME = ? AND TABSCHEMA = ?"
+            stmt = ibm_db.prepare(conn, sql)
+            ibm_db.bind_param(stmt, 1, table.upper())
+            ibm_db.bind_param(stmt, 2, schema.upper())
+        else:
+            sql = "SELECT COUNT(*) as cnt FROM SYSCAT.TABLES WHERE TABNAME = ? AND TABSCHEMA = CURRENT SCHEMA"
+            stmt = ibm_db.prepare(conn, sql)
+            ibm_db.bind_param(stmt, 1, metadata_table_name.upper())
+
         ibm_db.execute(stmt)
-        
         row = ibm_db.fetch_tuple(stmt)
         return row and int(row[0]) > 0
 
     def _create_metadata_table_if_not_exists(self) -> None:
         """Create metadata table to store embedding model information."""
         if self._metadata_table_exists():
-            logger.info(f"Metadata table exists")
+            logger.info("Metadata table exists")
             return
 
         conn = self._get_connection()
         metadata_table_name = self._get_metadata_table_name()
-        
+
         create_sql = f"""
         CREATE TABLE {metadata_table_name} (
             key VARCHAR(255) NOT NULL PRIMARY KEY,
             value VARCHAR(1000)
         )
         """
-        
+
         try:
             ibm_db.exec_immediate(conn, create_sql)
             logger.info(f"Created metadata table {metadata_table_name}")
@@ -404,33 +468,45 @@ class DB2DocumentStore:
             logger.warning(f"Error dropping metadata table: {e}")
 
     def _get_metadata(self, key: str) -> str | None:
-        """Get metadata value by key."""
+        """
+        Get metadata value by key from the metadata table.
+
+        :param key: Metadata key to retrieve.
+        :return: Metadata value if found, None otherwise.
+        """
         if not self._metadata_table_exists():
             return None
 
         conn = self._get_connection()
         metadata_table_name = self._get_metadata_table_name()
-        
+
         sql = f"SELECT value FROM {metadata_table_name} WHERE key = ?"
         stmt = ibm_db.prepare(conn, sql)
         ibm_db.bind_param(stmt, 1, key)
         ibm_db.execute(stmt)
-        
+
         row = ibm_db.fetch_tuple(stmt)
         return row[0] if row else None
 
     def _set_metadata(self, key: str, value: str) -> None:
-        """Set metadata key-value pair."""
+        """
+        Set metadata key-value pair in the metadata table.
+
+        Uses UPDATE first, then INSERT if no rows were updated (upsert pattern).
+
+        :param key: Metadata key to set.
+        :param value: Metadata value to store.
+        """
         conn = self._get_connection()
         metadata_table_name = self._get_metadata_table_name()
-        
+
         # Try to update first
         update_sql = f"UPDATE {metadata_table_name} SET value = ? WHERE key = ?"
         stmt = ibm_db.prepare(conn, update_sql)
         ibm_db.bind_param(stmt, 1, value)
         ibm_db.bind_param(stmt, 2, key)
         ibm_db.execute(stmt)
-        
+
         # If no rows updated, insert
         if ibm_db.num_rows(stmt) == 0:
             insert_sql = f"INSERT INTO {metadata_table_name} (key, value) VALUES (?, ?)"
@@ -442,17 +518,17 @@ class DB2DocumentStore:
     def _validate_model_consistency(self) -> None:
         """
         Validate that the embedding model is consistent with stored documents.
-        
+
         Raises ValueError if model mismatch is detected.
         """
         stored_model = self._get_metadata("embedding_model")
-        
+
         if stored_model:
             if stored_model != self.embedding_model:
                 msg = (
-                    f"\n{'='*80}\n"
+                    f"\n{'=' * 80}\n"
                     f"EMBEDDING MODEL MISMATCH DETECTED!\n"
-                    f"{'='*80}\n"
+                    f"{'=' * 80}\n"
                     f"The documents in this database were indexed with a different embedding model.\n\n"
                     f"  Stored model:  {stored_model}\n"
                     f"  Current model: {self.embedding_model}\n\n"
@@ -462,17 +538,16 @@ class DB2DocumentStore:
                     f"  1. Use the same model as stored: embedding_model='{stored_model}'\n"
                     f"  2. Re-index all documents with the new model: '{self.embedding_model}'\n"
                     f"  3. Set validate_embedding_model=False (NOT RECOMMENDED - only if you're certain)\n"
-                    f"{'='*80}\n"
+                    f"{'=' * 80}\n"
                 )
                 raise ValueError(msg)
             logger.info(f"Embedding model validated: {self.embedding_model}")
-        else:
-            # First time - store model info
-            if self.embedding_model:  # Type guard
-                self._set_metadata("embedding_model", self.embedding_model)
-                self._set_metadata("embedding_dimension", str(self.embedding_dimension))
-                self._set_metadata("distance_metric", self.distance_metric)
-                logger.info(f"Stored embedding model metadata: {self.embedding_model}")
+        # First time - store model info
+        elif self.embedding_model:  # Type guard
+            self._set_metadata("embedding_model", self.embedding_model)
+            self._set_metadata("embedding_dimension", str(self.embedding_dimension))
+            self._set_metadata("distance_metric", self.distance_metric)
+            logger.info(f"Stored embedding model metadata: {self.embedding_model}")
 
     def count_documents(self, filters: dict[str, Any] | None = None) -> int:
         """
@@ -482,14 +557,16 @@ class DB2DocumentStore:
         :return: Document count.
         """
         conn = self._get_connection()
-        where_clause = ""
         params: list[Any] = []
 
         if filters:
-            # Use the advanced filter system from filters.py
-            where_clause, params = convert_filters(filters, include_where=True)
-
-        sql = f"SELECT COUNT(*) as cnt FROM {self.qualified_table_name}{where_clause}"
+            # Use the filter system from filters.py
+            where_clause, params = convert_filters(filters)
+            # Use QueryBuilder for consistent SQL generation
+            sql = self.query_builder.build_count_with_filters(where_clause)
+        else:
+            # Use QueryBuilder for base count query
+            sql = self.query_builder.build_count_documents()
 
         try:
             # Use proper parameter binding instead of string replacement
@@ -522,7 +599,8 @@ class DB2DocumentStore:
         :param doc_id: Document ID to check.
         :return: True if document exists, False otherwise.
         """
-        check_sql = f"SELECT 1 FROM {self.qualified_table_name} WHERE id = ? FETCH FIRST 1 ROW ONLY"
+        # Use QueryBuilder for consistent SQL generation
+        check_sql, _ = self.query_builder.build_document_exists()
         stmt = ibm_db.prepare(conn, check_sql)
         if stmt is False:
             return False
@@ -740,8 +818,8 @@ class DB2DocumentStore:
             return
 
         conn = self._get_connection()
-        placeholders = ",".join(["?"] * len(document_ids))
-        sql = f"DELETE FROM {self.qualified_table_name} WHERE id IN ({placeholders})"
+        # Use QueryBuilder for consistent SQL generation
+        sql, _ = self.query_builder.build_delete_by_ids(len(document_ids))
 
         try:
             stmt = ibm_db.prepare(conn, sql)
@@ -819,14 +897,8 @@ class DB2DocumentStore:
                 # Validate and convert document
                 db2_doc = document_to_db2_dict(doc, self.embedding_dimension)
 
-                # Update query
-                update_sql = f"""
-                UPDATE {self.qualified_table_name}
-                SET content = ?,
-                    embedding = CAST('{db2_doc["embedding"]}' AS VECTOR({self.embedding_dimension}, {VECTOR_TYPE})),
-                    meta = ?
-                WHERE id = ?
-                """
+                # Use QueryBuilder for consistent SQL generation
+                update_sql, _ = self.query_builder.build_update_document(db2_doc["embedding"])
 
                 stmt = ibm_db.prepare(conn, update_sql)
                 if not stmt:
@@ -873,7 +945,8 @@ class DB2DocumentStore:
         if where_clause.startswith(" WHERE "):
             where_clause = where_clause[7:]
 
-        sql = f"DELETE FROM {self.qualified_table_name} WHERE {where_clause}"
+        # Use QueryBuilder for consistent SQL generation
+        sql = self.query_builder.build_delete_by_filters(where_clause)
 
         try:
             # Use proper parameter binding
@@ -968,11 +1041,12 @@ class DB2DocumentStore:
         For DB2, this returns basic type information based on JSON metadata.
 
         :return: Dictionary of metadata field information.
+        :raises DocumentStoreError: If query execution fails.
         """
         conn = self._get_connection()
 
         # Get all unique metadata keys from documents
-        sql = f"SELECT DISTINCT meta FROM {self.table_name} WHERE meta IS NOT NULL"
+        sql = f"SELECT DISTINCT meta FROM {self.qualified_table_name} WHERE meta IS NOT NULL"
 
         try:
             stmt = ibm_db.exec_immediate(conn, sql)
@@ -1011,9 +1085,10 @@ class DB2DocumentStore:
 
         :param field: Metadata field name.
         :return: List of unique values.
+        :raises DocumentStoreError: If query execution fails.
         """
         conn = self._get_connection()
-        sql = f"SELECT DISTINCT JSON_VALUE(meta, '$.{field}') as value FROM {self.table_name} WHERE JSON_VALUE(meta, '$.{field}') IS NOT NULL"
+        sql = f"SELECT DISTINCT JSON_VALUE(meta, '$.{field}') as value FROM {self.qualified_table_name} WHERE JSON_VALUE(meta, '$.{field}') IS NOT NULL"
 
         try:
             stmt = ibm_db.exec_immediate(conn, sql)
@@ -1044,7 +1119,7 @@ class DB2DocumentStore:
         # Check if field exists
         check_sql = (
             f"SELECT JSON_VALUE(meta, '$.{field}') as value "
-            f"FROM {self.table_name} "
+            f"FROM {self.qualified_table_name} "
             f"WHERE JSON_VALUE(meta, '$.{field}') IS NOT NULL "
             "FETCH FIRST 1 ROWS ONLY"
         )
@@ -1063,7 +1138,7 @@ class DB2DocumentStore:
         SELECT
             MIN(CAST(JSON_VALUE(meta, '$.{field}') AS DECIMAL)) as min_value,
             MAX(CAST(JSON_VALUE(meta, '$.{field}') AS DECIMAL)) as max_value
-        FROM {self.table_name}
+        FROM {self.qualified_table_name}
         WHERE JSON_VALUE(meta, '$.{field}') IS NOT NULL
         """
 
@@ -1098,6 +1173,8 @@ class DB2DocumentStore:
             embedding_model=self.embedding_model,
             validate_embedding_model=self.validate_embedding_model,
             batch_size=self.batch_size,
+            use_ssl=self._use_ssl,
+            ssl_certificate=self._ssl_certificate,
         )
 
     @classmethod
@@ -1331,7 +1408,7 @@ class DB2DocumentStore:
         # Use QueryBuilder for vector search with pagination support
         # Cast distance_metric to proper type for type checker
         sql = self.query_builder.build_vector_search(
-            distance_metric=cast(Literal["cosine", "euclidean", "inner_product"], self.distance_metric),
+            distance_metric=cast(Literal["cosine", "euclidean", "dot"], self.distance_metric),
             embedding_str=embedding_str,
             top_k=top_k,
             where_clause=where_clause,
@@ -1370,7 +1447,12 @@ class DB2DocumentStore:
                 # This gives: distance 0 (identical) → score 1.0, distance 2 (opposite) → score -1.0
                 if row.get("DISTANCE") is not None:
                     distance = float(cast(Any, row["DISTANCE"]))
-                    doc = replace(doc, score=1.0 - distance)
+                    score = 1.0 - distance
+                    # Set score on document and in metadata for Haystack compatibility
+                    doc = replace(doc, score=score)
+                    if doc.meta is None:
+                        doc.meta = {}
+                    doc.meta["score"] = score
                 documents.append(doc)
 
             return documents

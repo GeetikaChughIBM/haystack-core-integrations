@@ -59,8 +59,14 @@ class DB2QueryBuilder:
 
         :return: Tuple of (SQL query, parameters).
         """
-        sql = "SELECT COUNT(*) as cnt FROM SYSCAT.TABLES WHERE TABNAME = ? AND TABSCHEMA = CURRENT SCHEMA"
-        params = [self.table_name.upper()]
+        # Handle schema-qualified table names (e.g., "schema.table")
+        if "." in self.table_name:
+            schema, table = self.table_name.split(".", 1)
+            sql = "SELECT COUNT(*) as cnt FROM SYSCAT.TABLES WHERE TABNAME = ? AND TABSCHEMA = ?"
+            params = [table.upper(), schema.upper()]
+        else:
+            sql = "SELECT COUNT(*) as cnt FROM SYSCAT.TABLES WHERE TABNAME = ? AND TABSCHEMA = CURRENT SCHEMA"
+            params = [self.table_name.upper()]
         return sql, params
 
     def build_count_documents(self) -> str:
@@ -160,7 +166,7 @@ class DB2QueryBuilder:
 
     def build_vector_search(
         self,
-        distance_metric: Literal["cosine", "euclidean", "inner_product"],
+        distance_metric: Literal["cosine", "euclidean", "dot"],
         embedding_str: str,
         top_k: int,
         where_clause: str | None = None,
@@ -182,7 +188,7 @@ class DB2QueryBuilder:
         metric_map = {
             "cosine": "COSINE",
             "euclidean": "EUCLIDEAN",
-            "inner_product": "COSINE",  # DB2 doesn't support INNER_PRODUCT, use COSINE
+            "dot": "DOT_PRODUCT",
         }
         db2_metric = metric_map.get(distance_metric, "COSINE")
 
@@ -215,66 +221,77 @@ class DB2QueryBuilder:
         query: str,
         top_k: int,
         where_clause: str | None = None,
+        use_text_search: bool = False,
     ) -> str:
         """
-        Build keyword search query using LIKE with multi-word support.
+        Build keyword search query with relevance scoring.
 
-        Splits query into keywords and scores documents based on how many
-        keywords they contain. Documents must contain ALL keywords to match.
+        Two modes available:
+        1. Pattern matching (default): Uses LIKE for compatibility, scores by keyword frequency
+        2. Text search (if use_text_search=True): Uses DB2 Text Search CONTAINS/SCORE for better relevance
 
         :param query: Search query string (can be multi-word).
         :param top_k: Number of results to return.
         :param where_clause: Optional WHERE clause for filtering.
+        :param use_text_search: If True, use DB2 Text Search (requires text index). Default False for compatibility.
         :return: SQL SELECT statement with keyword matching and scoring.
         """
-        # Split query into keywords and escape special characters
-        keywords = query.strip().split()
-        escaped_keywords = [kw.replace("'", "''").replace("%", "\\%").replace("_", "\\_") for kw in keywords]
+        if use_text_search:
+            # Use DB2 Text Search with CONTAINS and SCORE functions
+            # Requires: CREATE INDEX text_idx ON table_name(content) FOR TEXT
+            escaped_query = query.replace("'", "''")
 
-        # Build score calculation - count how many keywords match
-        # Each keyword match adds 1 to the score
-        score_cases = []
-        for keyword in escaped_keywords:
-            score_cases.append(f"CASE WHEN LOWER(content) LIKE LOWER('%{keyword}%') THEN 1 ELSE 0 END")
+            sql = f"""
+            SELECT id, content, embedding, meta,
+                   SCORE({self.table_name}, content, '{escaped_query}') as score
+            FROM {self.table_name}
+            WHERE CONTAINS(content, '{escaped_query}') = 1
+            """
 
-        score_expr = " + ".join(score_cases) if score_cases else "0"
+            if where_clause:
+                sql += f" AND {where_clause}"
 
-        sql = f"""
-        SELECT id, content, embedding, meta,
-               ({score_expr}) as score
-        FROM {self.table_name}
-        """
+            sql += f" ORDER BY score DESC FETCH FIRST {top_k} ROWS ONLY"
 
-        # Build WHERE clause - document must contain ALL keywords (AND logic)
-        keyword_conditions = [f"LOWER(content) LIKE LOWER('%{keyword}%')" for keyword in escaped_keywords]
+        else:
+            # Fallback: Pattern matching with LIKE (works without text index)
+            # Split query into keywords and escape special characters
+            keywords = query.strip().split()
+            escaped_keywords = [kw.replace("'", "''").replace("%", "\\%").replace("_", "\\_") for kw in keywords]
 
-        conditions = []
-        if keyword_conditions:
-            conditions.append("(" + " AND ".join(keyword_conditions) + ")")
-        if where_clause:
-            conditions.append(where_clause)
+            # Build score calculation - count keyword frequency
+            # More sophisticated scoring: count occurrences, not just presence
+            score_cases = []
+            for keyword in escaped_keywords:
+                # Score based on number of occurrences of each keyword
+                score_cases.append(
+                    f"(LENGTH(LOWER(content)) - LENGTH(REPLACE(LOWER(content), LOWER('{keyword}'), ''))) / LENGTH('{keyword}')"
+                )
 
-        if conditions:
-            sql += " WHERE " + " AND ".join(conditions)
+            score_expr = " + ".join(score_cases) if score_cases else "0"
 
-        # Sort by score DESC (higher scores = more keyword matches)
-        sql += f" ORDER BY score DESC FETCH FIRST {top_k} ROWS ONLY"
+            sql = f"""
+            SELECT id, content, embedding, meta,
+                   ({score_expr}) as score
+            FROM {self.table_name}
+            """
+
+            # Build WHERE clause - document must contain ALL keywords (AND logic)
+            keyword_conditions = [f"LOWER(content) LIKE LOWER('%{keyword}%')" for keyword in escaped_keywords]
+
+            conditions = []
+            if keyword_conditions:
+                conditions.append("(" + " AND ".join(keyword_conditions) + ")")
+            if where_clause:
+                conditions.append(where_clause)
+
+            if conditions:
+                sql += " WHERE " + " AND ".join(conditions)
+
+            # Sort by score DESC (higher scores = more keyword matches/frequency)
+            sql += f" ORDER BY score DESC FETCH FIRST {top_k} ROWS ONLY"
 
         return sql
-
-    def _get_distance_function(self, _metric: Literal["cosine", "euclidean", "inner_product"]) -> str:
-        """
-        Get DB2 distance function name for metric.
-
-        Note: Returns just the function name. The metric parameter will be added
-        in build_vector_search() as the third argument to VECTOR_DISTANCE.
-
-        :param _metric: Distance metric name (unused - kept for API consistency).
-        :return: DB2 VECTOR_DISTANCE function name with metric.
-        """
-        # DB2 VECTOR_DISTANCE syntax: VECTOR_DISTANCE(vec1, vec2, metric_type)
-        # where metric_type is COSINE, EUCLIDEAN, etc. (not a string)
-        return "VECTOR_DISTANCE"  # Function name only, metric added in build_vector_search
 
     def build_update_embedding(self, embedding_str: str) -> tuple[str, list[Any]]:
         """
@@ -298,3 +315,39 @@ class DB2QueryBuilder:
         """
         sql = f"UPDATE {self.table_name} SET meta = ? WHERE id = ?"
         return sql, []
+
+    def build_update_document(self, embedding_str: str) -> tuple[str, list[Any]]:
+        """
+        Build UPDATE document statement (content, embedding, metadata).
+
+        :param embedding_str: String representation of new embedding.
+        :return: Tuple of (SQL query, parameter placeholders).
+        """
+        sql = f"""
+        UPDATE {self.table_name}
+        SET content = ?,
+            embedding = CAST('{embedding_str}' AS VECTOR({self.embedding_dimension}, {self.vector_type})),
+            meta = ?
+        WHERE id = ?
+        """
+        return sql, []
+
+    def build_count_with_filters(self, where_clause: str) -> str:
+        """
+        Build COUNT query with filters.
+
+        :param where_clause: WHERE clause from filter conversion.
+        :return: SQL COUNT statement.
+        """
+        return f"SELECT COUNT(*) as cnt FROM {self.table_name} WHERE {where_clause}"
+
+    def build_select_all(self, include_embedding: bool = False) -> str:
+        """
+        Build SELECT all documents query.
+
+        :param include_embedding: Whether to include embedding column.
+        :return: SQL SELECT statement.
+        """
+        if include_embedding:
+            return f"SELECT id, content, embedding, meta FROM {self.table_name}"
+        return f"SELECT id, content, meta FROM {self.table_name}"
