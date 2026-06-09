@@ -8,8 +8,8 @@ This example demonstrates:
 
 Prerequisites:
 - DB2 database running (v12.1.2+ with vector support)
-- Environment variables set (see .env.example)
-- Install: pip install db2-haystack sentence-transformers
+- Environment variables set in `.env`
+- Install: `pip install db2-haystack sentence-transformers`
 """
 
 import logging
@@ -19,6 +19,7 @@ from dotenv import load_dotenv
 from haystack import Document, Pipeline
 from haystack.components.embedders import SentenceTransformersDocumentEmbedder, SentenceTransformersTextEmbedder
 from haystack.components.joiners import DocumentJoiner
+from haystack.components.writers import DocumentWriter
 from haystack.utils import Secret
 
 from haystack_integrations.components.retrievers.db2 import DB2EmbeddingRetriever, DB2KeywordRetriever
@@ -40,15 +41,20 @@ def main() -> None:
 
     # Initialize document store
     logger.info("\n1. Initializing DB2 Document Store...")
+    use_ssl = os.getenv("DB2_SSL_ENABLED", "").lower() in {"1", "true", "yes"}
+    port = int(os.getenv("DB2_SSL_PORT", "50001")) if use_ssl else int(os.getenv("DB2_PORT", "50000"))
+
     document_store = DB2DocumentStore(
         database=os.getenv("DB2_DATABASE", "TESTDB"),
         username=Secret.from_env_var("DB2_USER"),
         password=Secret.from_env_var("DB2_PASSWORD"),
-        hostname=os.getenv("DB2_HOST", "localhost"),
-        port=int(os.getenv("DB2_PORT", "50000")),
+        hostname=os.getenv("DB2_HOSTNAME"),
+        port=port,
         table_name="hybrid_example",
         embedding_dimension=384,
         distance_metric="cosine",
+        use_ssl=use_ssl,
+        ssl_certificate=os.getenv("DB2_SSL_CERTIFICATE") or os.getenv("DB2_SSL_CERT_PATH"),
         recreate_table=True,
     )
     logger.info("✓ Document store initialized")
@@ -139,7 +145,7 @@ def main() -> None:
     keyword_results = DB2KeywordRetriever(document_store=document_store, top_k=3).run(query=query)
     logger.info(f"Found {len(keyword_results['documents'])} results:\n")
     for i, doc in enumerate(keyword_results["documents"], 1):
-        logger.info(f"{i}. {doc.content[:80]}...")
+        logger.info(f"{i}. {str(doc.content)[:80]}...")
         logger.info(f"   Category: {doc.meta.get('category', 'N/A')}\n")
 
     # Embedding-only search
@@ -154,7 +160,7 @@ def main() -> None:
     for i, doc in enumerate(embedding_results["documents"], 1):
         score = doc.score if doc.score is not None else 0.0
         logger.info(f"{i}. Score: {score:.4f}")
-        logger.info(f"   {doc.content[:80]}...")
+        logger.info(f"   {str(doc.content)[:80]}...")
         logger.info(f"   Category: {doc.meta.get('category', 'N/A')}\n")
 
     # Hybrid search

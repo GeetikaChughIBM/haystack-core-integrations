@@ -21,17 +21,26 @@ class DB2EmbeddingRetriever:
     Retriever component for DB2DocumentStore using vector similarity search.
 
     Performs semantic search by comparing query embeddings with document embeddings
-    stored in DB2 using the VECTOR_DISTANCE function.
+    stored in DB2 using the `VECTOR_DISTANCE` function.
 
     Usage example:
     ```python
+    import os
+
+    from haystack.utils import Secret
     from haystack_integrations.document_stores.db2 import DB2DocumentStore
     from haystack_integrations.components.retrievers.db2 import DB2EmbeddingRetriever
 
+    use_ssl = os.getenv("DB2_SSL_ENABLED", "").lower() in {"1", "true", "yes"}
+    port = int(os.getenv("DB2_SSL_PORT", "50001")) if use_ssl else int(os.getenv("DB2_PORT", "50000"))
+
     document_store = DB2DocumentStore(
-        database="TESTDB",
+        database=os.getenv("DB2_DATABASE", "TESTDB"),
+        hostname=os.getenv("DB2_HOSTNAME"),
+        port=port,
         username=Secret.from_env_var("DB2_USER"),
-        password=Secret.from_env_var("DB2_PASSWORD")
+        password=Secret.from_env_var("DB2_PASSWORD"),
+        use_ssl=use_ssl,
     )
 
     retriever = DB2EmbeddingRetriever(document_store=document_store, top_k=5)

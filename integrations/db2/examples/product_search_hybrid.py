@@ -20,7 +20,7 @@ Key Design Goals:
 - Semantic search and SQL filtering work together
 
 Requirements:
-pip install sentence-transformers haystack-ai ibm-db python-dotenv
+`pip install sentence-transformers haystack-ai ibm-db python-dotenv`
 """
 
 import os
@@ -144,13 +144,18 @@ def create_source_products_table(database, username, password):
 
     import ibm_db
 
+    use_ssl = os.getenv("DB2_SSL_ENABLED", "").lower() in {"1", "true", "yes"}
+    hostname = os.getenv("DB2_HOSTNAME")
+    port = os.getenv("DB2_SSL_PORT", "50001") if use_ssl else os.getenv("DB2_PORT", "50000")
+
     conn_str = (
         f"DATABASE={database};"
-        f"HOSTNAME=localhost;"
-        f"PORT=50000;"
+        f"HOSTNAME={hostname};"
+        f"PORT={port};"
         f"PROTOCOL=TCPIP;"
         f"UID={username};"
         f"PWD={password};"
+        f"{'SECURITY=SSL;' if use_ssl else ''}"
     )
 
     conn = ibm_db.connect(conn_str, "", "")
@@ -443,13 +448,18 @@ def load_products(database, username, password):
 
     import ibm_db
 
+    use_ssl = os.getenv("DB2_SSL_ENABLED", "").lower() in {"1", "true", "yes"}
+    hostname = os.getenv("DB2_HOSTNAME")
+    port = os.getenv("DB2_SSL_PORT", "50001") if use_ssl else os.getenv("DB2_PORT", "50000")
+
     conn_str = (
         f"DATABASE={database};"
-        f"HOSTNAME=localhost;"
-        f"PORT=50000;"
+        f"HOSTNAME={hostname};"
+        f"PORT={port};"
         f"PROTOCOL=TCPIP;"
         f"UID={username};"
         f"PWD={password};"
+        f"{'SECURITY=SSL;' if use_ssl else ''}"
     )
 
     conn = ibm_db.connect(conn_str, "", "")
@@ -527,16 +537,15 @@ def load_products(database, username, password):
 
 def setup_vector_store():
 
+    use_ssl = os.getenv("DB2_SSL_ENABLED", "").lower() in {"1", "true", "yes"}
+    port = int(os.getenv("DB2_SSL_PORT", "50001")) if use_ssl else int(os.getenv("DB2_PORT", "50000"))
+
     document_store = DB2DocumentStore(
-        database="TESTDB",
-        username=Secret.from_env_var(
-            "DB2_USER",
-            strict=False
-        ) or Secret.from_token("db2inst1"),
-        password=Secret.from_env_var(
-            "DB2_PASSWORD",
-            strict=False
-        ) or Secret.from_token("password"),
+        database=os.getenv("DB2_DATABASE", "TESTDB"),
+        hostname=os.getenv("DB2_HOSTNAME"),
+        port=port,
+        username=Secret.from_env_var("DB2_USER"),
+        password=Secret.from_env_var("DB2_PASSWORD"),
         table_name="product_vectors",
         embedding_dimension=384,
         distance_metric="cosine",
@@ -1057,19 +1066,8 @@ def main():
 
     database = "TESTDB"
 
-    username = (
-        Secret.from_env_var(
-            "DB2_USER",
-            strict=False
-        ) or Secret.from_token("db2inst1")
-    )
-
-    password = (
-        Secret.from_env_var(
-            "DB2_PASSWORD",
-            strict=False
-        ) or Secret.from_token("password")
-    )
+    username = Secret.from_env_var("DB2_USER")
+    password = Secret.from_env_var("DB2_PASSWORD")
 
     username_str = username.resolve_value()
     password_str = password.resolve_value()

@@ -35,15 +35,23 @@ class DB2KeywordRetriever:
 
     Usage example:
     ```python
+    import os
+
+    from haystack.utils import Secret
     from haystack_integrations.document_stores.db2 import DB2DocumentStore
     from haystack_integrations.components.retrievers.db2 import DB2KeywordRetriever
-    from haystack.utils import Secret
+
+    use_ssl = os.getenv("DB2_SSL_ENABLED", "").lower() in {"1", "true", "yes"}
+    port = int(os.getenv("DB2_SSL_PORT", "50001")) if use_ssl else int(os.getenv("DB2_PORT", "50000"))
 
     document_store = DB2DocumentStore(
-        database="TESTDB",
+        database=os.getenv("DB2_DATABASE", "TESTDB"),
+        hostname=os.getenv("DB2_HOSTNAME"),
+        port=port,
         username=Secret.from_env_var("DB2_USER"),
         password=Secret.from_env_var("DB2_PASSWORD"),
-        embedding_dimension=384
+        embedding_dimension=384,
+        use_ssl=use_ssl,
     )
 
     retriever = DB2KeywordRetriever(document_store=document_store, top_k=10)

@@ -2,15 +2,15 @@
 Basic usage example for DB2 Haystack integration.
 
 This example demonstrates:
-- Connecting to DB2 with Secret objects
+- Connecting to DB2 using environment-driven credentials
 - Writing documents with embeddings
 - Filtering documents by metadata
 - Counting and deleting documents
 
 Prerequisites:
 - DB2 database running (v12.1.2+ with vector support)
-- Environment variables set (see .env.example)
-- Install: pip install db2-haystack
+- Environment variables set in `.env`
+- Install: `pip install db2-haystack`
 """
 
 import logging
@@ -38,15 +38,20 @@ def main() -> None:
 
     # Initialize document store with Secret objects for secure credential management
     logger.info("\n1. Initializing DB2 Document Store...")
+    use_ssl = os.getenv("DB2_SSL_ENABLED", "").lower() in {"1", "true", "yes"}
+    port = int(os.getenv("DB2_SSL_PORT", "50001")) if use_ssl else int(os.getenv("DB2_PORT", "50000"))
+
     document_store = DB2DocumentStore(
         database=os.getenv("DB2_DATABASE", "TESTDB"),
         username=Secret.from_env_var("DB2_USER"),
         password=Secret.from_env_var("DB2_PASSWORD"),
-        hostname=os.getenv("DB2_HOST", "localhost"),
-        port=int(os.getenv("DB2_PORT", "50000")),
+        hostname=os.getenv("DB2_HOSTNAME"),
+        port=port,
         table_name="example_documents",
         embedding_dimension=384,
         distance_metric="cosine",
+        use_ssl=use_ssl,
+        ssl_certificate=os.getenv("DB2_SSL_CERTIFICATE") or os.getenv("DB2_SSL_CERT_PATH"),
         recreate_table=True,  # Start fresh for this example
     )
     logger.info("✓ Document store initialized")
@@ -102,7 +107,7 @@ def main() -> None:
     geo_docs = document_store.filter_documents(filters={"field": "category", "operator": "==", "value": "geography"})
     logger.info(f"✓ Found {len(geo_docs)} geography documents:")
     for doc in geo_docs:
-        logger.info(f"   - {doc.id}: {doc.content[:50]}...")
+        logger.info(f"   - {doc.id}: {str(doc.content)[:50]}...")
 
     # Filter with complex conditions (AND operator)
     logger.info("\n6. Filtering with complex conditions (category='technology' AND topic='AI')...")
@@ -117,7 +122,7 @@ def main() -> None:
     )
     logger.info(f"✓ Found {len(tech_docs)} matching documents:")
     for doc in tech_docs:
-        logger.info(f"   - {doc.id}: {doc.content[:50]}...")
+        logger.info(f"   - {doc.id}: {str(doc.content)[:50]}...")
 
     # Filter with OR operator
     logger.info("\n7. Filtering with OR operator (country='France' OR country='Italy')...")
@@ -132,7 +137,7 @@ def main() -> None:
     )
     logger.info(f"✓ Found {len(country_docs)} matching documents:")
     for doc in country_docs:
-        logger.info(f"   - {doc.id}: {doc.content[:50]}...")
+        logger.info(f"   - {doc.id}: {str(doc.content)[:50]}...")
 
     # Delete specific documents
     logger.info("\n8. Deleting documents...")

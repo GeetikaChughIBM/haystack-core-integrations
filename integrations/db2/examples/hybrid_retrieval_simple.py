@@ -15,14 +15,16 @@ Hybrid search is particularly useful when you want to:
 
 Requirements:
 - DB2 database with vector support
+- Environment variables set in `.env`
 - sentence-transformers library
 - haystack-ai framework
 
 Install:
-pip install sentence-transformers haystack-ai ibm-db
+`pip install sentence-transformers haystack-ai ibm-db`
 """
 
 import logging
+import os
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -73,12 +75,19 @@ def main() -> None:
 
     # Step 1: Initialize document store
     logger.info("\n1. Initializing DB2 document store...")
+    use_ssl = os.getenv("DB2_SSL_ENABLED", "").lower() in {"1", "true", "yes"}
+    port = int(os.getenv("DB2_SSL_PORT", "50001")) if use_ssl else int(os.getenv("DB2_PORT", "50000"))
+
     document_store = DB2DocumentStore(
-        database="TESTDB",
-        username=Secret.from_env_var("DB2_USER", strict=False) or Secret.from_token("db2inst1"),
-        password=Secret.from_env_var("DB2_PASSWORD", strict=False) or Secret.from_token("password"),
+        database=os.getenv("DB2_DATABASE", "TESTDB"),
+        hostname=os.getenv("DB2_HOSTNAME"),
+        port=port,
+        username=Secret.from_env_var("DB2_USER"),
+        password=Secret.from_env_var("DB2_PASSWORD"),
         table_name="hybrid_demo",
         embedding_dimension=384,  # all-MiniLM-L6-v2 dimension
+        use_ssl=use_ssl,
+        ssl_certificate=os.getenv("DB2_SSL_CERTIFICATE") or os.getenv("DB2_SSL_CERT_PATH"),
         recreate_table=True,
     )
     logger.info("✓ Document store ready")

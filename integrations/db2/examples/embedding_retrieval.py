@@ -9,6 +9,7 @@ This example demonstrates:
 """
 
 import logging
+import os
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -39,29 +40,22 @@ logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
 
 # Initialize DB2 document store
-# For local connection (Fyre VM):
+use_ssl = os.getenv("DB2_SSL_ENABLED", "").lower() in {"1", "true", "yes"}
+port = int(os.getenv("DB2_SSL_PORT", "50001")) if use_ssl else int(os.getenv("DB2_PORT", "50000"))
+
 document_store = DB2DocumentStore(
-    database="TESTDB",
+    database=os.getenv("DB2_DATABASE", "TESTDB"),
+    hostname=os.getenv("DB2_HOSTNAME"),
+    port=port,
     username=Secret.from_env_var("DB2_USER"),
     password=Secret.from_env_var("DB2_PASSWORD"),
     table_name="haystack_rag_demo",
     embedding_dimension=384,  # all-MiniLM-L6-v2 dimension
     distance_metric="cosine",
+    use_ssl=use_ssl,
+    ssl_certificate=os.getenv("DB2_SSL_CERTIFICATE") or os.getenv("DB2_SSL_CERT_PATH"),
     recreate_table=True,
 )
-
-# For remote connection (IBM Cloud):
-# document_store = DB2DocumentStore(
-#     database="BLUDB",
-#     hostname="your-host.ibmappdomain.cloud",
-#     port=32310,
-#     username=Secret.from_token("your_username"),
-#     password=Secret.from_token("your_password"),
-#     table_name="haystack_rag_demo",
-#     embedding_dimension=384,
-#     distance_metric="cosine",
-#     recreate_table=True,
-# )
 
 logger.info("%s", "=" * 80)
 logger.info("DB2 RAG Pipeline Example")
@@ -198,19 +192,19 @@ logger.info("%s", "-" * 40)
 logger.info("\nPage 1 (offset=0, top_k=2):")
 page1_results = document_store.query_by_embedding(query_embedding=query_embedding, top_k=2, offset=0)
 for i, doc in enumerate(page1_results, 1):
-    logger.info(f"  {i}. Score: {doc.score:.4f} - {doc.content[:60]}...")
+    logger.info(f"  {i}. Score: {doc.score:.4f} - {str(doc.content)[:60]}...")
 
 # Get second page (next 2 results)
 logger.info("\nPage 2 (offset=2, top_k=2):")
 page2_results = document_store.query_by_embedding(query_embedding=query_embedding, top_k=2, offset=2)
 for i, doc in enumerate(page2_results, 1):
-    logger.info(f"  {i}. Score: {doc.score:.4f} - {doc.content[:60]}...")
+    logger.info(f"  {i}. Score: {doc.score:.4f} - {str(doc.content)[:60]}...")
 
 # Get third page (remaining results)
 logger.info("\nPage 3 (offset=4, top_k=2):")
 page3_results = document_store.query_by_embedding(query_embedding=query_embedding, top_k=2, offset=4)
 for i, doc in enumerate(page3_results, 1):
-    logger.info(f"  {i}. Score: {doc.score:.4f} - {doc.content[:60]}...")
+    logger.info(f"  {i}. Score: {doc.score:.4f} - {str(doc.content)[:60]}...")
 
 logger.info("\n✓ Pagination allows you to retrieve results in pages for better UX")
 logger.info("✓ Note: Scores use formula score = 1 - distance (cosine) where higher = better match")

@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 # Constants for DB2 configuration
 DEFAULT_PORT = 50000
+DEFAULT_SSL_PORT = 50001
 DEFAULT_HOST = "localhost"
 PROTOCOL = "TCPIP"
 VECTOR_TYPE = "FLOAT32"
@@ -32,7 +33,8 @@ class DB2DocumentStore:
     """
     Document store using IBM DB2 with native vector support.
 
-    Supports local and remote connections via explicit TCP/IP connection strings.
+    Supports explicit TCP/IP connection flow using either a full connection string
+    or connection details supplied through environment-backed parameters.
 
     **Note on Async Support:**
     Async operations are **not supported** due to limitations in the ibm_db library, which does not provide
@@ -50,35 +52,29 @@ class DB2DocumentStore:
     - All batch operations use `self.batch_size` for consistency with user configuration.
     - Pagination (offset parameter) is supported in `query_by_embedding()` for retrieving result pages.
 
-    Usage example (local connection with TCP/IP):
+    Usage example:
     ```python
+    import os
+
     from haystack_integrations.document_stores.db2 import DB2DocumentStore
     from haystack.utils import Secret
 
-    # Local connection - uses localhost with explicit TCP/IP
+    use_ssl = os.getenv("DB2_SSL_ENABLED", "").lower() in {"1", "true", "yes"}
+    port = int(os.getenv("DB2_SSL_PORT", "50001")) if use_ssl else int(os.getenv("DB2_PORT", "50000"))
+
     store = DB2DocumentStore(
-        database="TESTDB",
+        database=os.getenv("DB2_DATABASE", "TESTDB"),
+        hostname=os.getenv("DB2_HOSTNAME"),
+        port=port,
         username=Secret.from_env_var("DB2_USER"),
         password=Secret.from_env_var("DB2_PASSWORD"),
-        port=50000,  # default DB2 port
         embedding_dimension=384,
-        batch_size=100  # optional: control batch size for write operations
-    )
-    ```
-
-    Usage example (remote connection):
-    ```python
-    # Remote connection with hostname
-    store = DB2DocumentStore(
-        database="TESTDB",
-        hostname="remote-server.com",
-        port=50000,
-        username=Secret.from_env_var("DB2_USER"),
-        password=Secret.from_env_var("DB2_PASSWORD"),
-        embedding_dimension=384
+        use_ssl=use_ssl,
+        ssl_certificate=os.getenv("DB2_SSL_CERTIFICATE") or os.getenv("DB2_SSL_CERT_PATH"),
+        batch_size=100,  # optional: control batch size for write operations
     )
 
-    # Or use connection string directly
+    # Or use a full connection string from the environment
     store = DB2DocumentStore(
         connection_string=Secret.from_env_var("DB2_CONNECTION_STRING"),
         embedding_dimension=384
@@ -105,23 +101,27 @@ class DB2DocumentStore:
         validate_embedding_model: bool = True,
         use_ssl: bool = False,
         ssl_certificate: str | None = None,
+        use_batch_insert: bool = True,
     ) -> None:
         """
         Initialize DB2DocumentStore.
 
-        Connection Methods (all use explicit TCP/IP):
-        1. Connection string: Provide connection_string with full connection details
-        2. Local TCP/IP: Provide database, username, password (uses localhost:50000)
-        3. Remote TCP/IP: Provide database, hostname, port, username, password
+        Connection methods (all use explicit TCP/IP):
+        1. Connection string: provide `connection_string` with full connection details
+        2. Parameter-based connection: provide `database`, `username`, `password`, `hostname`, and `port`
 
-        All connection methods use explicit TCP/IP protocol (PROTOCOL=TCPIP) for consistency.
+        In typical usage, these values come from environment variables such as
+        `DB2_DATABASE`, `DB2_HOSTNAME`, `DB2_PORT`, `DB2_SSL_PORT`, `DB2_USER`,
+        `DB2_PASSWORD`, and `DB2_SSL_ENABLED`.
+
+        All connection methods use explicit TCP/IP protocol (`PROTOCOL=TCPIP`) for consistency.
 
         :param connection_string: Full DB2 connection string.
         :param database: Database name.
         :param username: Database username.
         :param password: Database password.
-        :param hostname: Database hostname (optional, defaults to localhost if not provided).
-        :param port: Database port (default: 50000).
+        :param hostname: Database hostname. 
+        :param port: Database port. Use `DB2_PORT` for non-SSL connections and `DB2_SSL_PORT` for SSL connections.
         :param table_name: Table name for documents.
         :param embedding_dimension: Embedding vector dimension.
         :param distance_metric: Distance metric (cosine, euclidean, dot).
@@ -138,14 +138,20 @@ class DB2DocumentStore:
                                         Set to False only if you're certain about model compatibility.
         :param use_ssl: Enable SSL/TLS encryption for the database connection (default: False).
                        When True, the connection will use SSL/TLS to encrypt data in transit.
+                       In environment-driven setups, this typically maps to `DB2_SSL_ENABLED`.
         :param ssl_certificate: Path to SSL certificate file for server verification (optional).
                                If provided, the certificate will be used to verify the server's identity.
                                Example: "/path/to/server-cert.pem"
+        :param use_batch_insert: Use multi-row INSERT for batch operations (default: True).
+                                When True, uses a single INSERT statement with multiple VALUE clauses for better performance.
+                                When False, uses individual INSERT statements in a loop.
+                                Set to False if you encounter SQL length limits with very large batches.
         :raises DocumentStoreError: If parameters are invalid or connection fails.
         :raises ValueError: If embedding model validation fails (model mismatch detected).
         """
-        # Store batch size for write operations
+        # Store batch size and insertion strategy for write operations
         self.batch_size = batch_size
+        self.use_batch_insert = use_batch_insert
 
         # Store embedding model configuration
         self.embedding_model = embedding_model
@@ -171,7 +177,6 @@ class DB2DocumentStore:
 
         # Build actual connection string for use
         if connection_string:
-            # Method 1: Connection string provided
             conn_str = connection_string.resolve_value()
 
             # Normalize connection string to uppercase for checking
@@ -179,14 +184,11 @@ class DB2DocumentStore:
 
             # Add SSL parameters if enabled and not already present
             if use_ssl and conn_str:
-                # Check if SECURITY=SSL is already in the connection string (case-insensitive)
                 if "SECURITY=SSL" not in conn_str_upper:
-                    # Ensure connection string ends with semicolon
                     if not conn_str.endswith(";"):
                         conn_str += ";"
                     conn_str += "SECURITY=SSL;"
 
-                # Add SSL certificate if provided and not already present
                 if ssl_certificate and "SSLSERVERCERTIFICATE=" not in conn_str_upper:
                     if not conn_str.endswith(";"):
                         conn_str += ";"
@@ -196,20 +198,14 @@ class DB2DocumentStore:
         elif database and username and password:
             user = username.resolve_value()
             pwd = password.resolve_value()
+            resolved_hostname = hostname or DEFAULT_HOST
+            resolved_port = DEFAULT_SSL_PORT if use_ssl and port == DEFAULT_PORT else port
 
-            # Build base connection string
-            if hostname:
-                # Method 2: Remote with explicit TCP/IP
-                conn_str = (
-                    f"DATABASE={database};HOSTNAME={hostname};PORT={port};PROTOCOL={PROTOCOL};UID={user};PWD={pwd};"
-                )
-            else:
-                # Method 3: Local with explicit TCP/IP (uses localhost)
-                conn_str = (
-                    f"DATABASE={database};HOSTNAME={DEFAULT_HOST};PORT={port};PROTOCOL={PROTOCOL};UID={user};PWD={pwd};"
-                )
+            conn_str = (
+                f"DATABASE={database};HOSTNAME={resolved_hostname};PORT={resolved_port};"
+                f"PROTOCOL={PROTOCOL};UID={user};PWD={pwd};"
+            )
 
-            # Add SSL/TLS parameters if enabled
             if use_ssl:
                 conn_str += "SECURITY=SSL;"
                 if ssl_certificate:
@@ -218,9 +214,8 @@ class DB2DocumentStore:
             self._connection_string = conn_str
         else:
             msg = (
-                "Provide either: (1) connection_string, "
-                "(2) database + username + password (local), or "
-                "(3) database + hostname + port + username + password (remote)"
+                "Provide either: (1) connection_string, or "
+                "(2) database + username + password with optional hostname + port"
             )
             raise DocumentStoreError(msg)
 
@@ -647,9 +642,9 @@ class DB2DocumentStore:
 
     def write_documents(self, documents: list[Document], policy: DuplicatePolicy = DuplicatePolicy.NONE) -> int:
         """
-        Write documents to store.
+        Write documents to store with configurable batch insertion strategy.
 
-        Uses batch processing for improved performance with large document sets.
+        Uses multi-row INSERT (use_batch_insert=True) or individual INSERTs (use_batch_insert=False).
 
         :param documents: Documents to write.
         :param policy: Duplicate handling policy.
@@ -658,13 +653,10 @@ class DB2DocumentStore:
         if not documents:
             return 0
 
-        # Use converters for validation and conversion
-
         conn = self._get_connection()
         written = 0
 
         # Process in batches for better performance
-        # Use self.batch_size for batch operations (fixes config bug)
         batch_size = self.batch_size if len(documents) >= self.batch_size else len(documents)
 
         for i in range(0, len(documents), batch_size):
@@ -690,59 +682,143 @@ class DB2DocumentStore:
                         ibm_db.bind_param(stmt, idx, doc_id)  # type: ignore[arg-type]
                     ibm_db.execute(stmt)  # type: ignore[arg-type]
 
-            # Process each document in the batch
-            for doc in batch:
-                try:
-                    # Use converter for validation and conversion
-                    db2_doc = document_to_db2_dict(doc, self.embedding_dimension)
+            if not batch:
+                continue
 
-                    # db2_doc["embedding"] is already a string in format "[1.0,2.0,...]"
-                    embedding_str = db2_doc["embedding"]
-
-                    # Use QueryBuilder for SQL construction (fixes abstraction issue)
-                    insert_sql, _ = self.query_builder.build_insert_document(embedding_str)
-
-                    stmt = ibm_db.prepare(conn, insert_sql)
-                    if not stmt:
-                        msg = f"Failed to prepare statement: {ibm_db.stmt_error()}"
-                        raise DocumentStoreError(msg)
-
-                    # Bind only user-controlled data (id, content, meta) - embedding is in SQL
-                    ibm_db.bind_param(stmt, 1, doc.id)  # type: ignore[arg-type]
-                    ibm_db.bind_param(stmt, 2, doc.content or "")  # type: ignore[arg-type]
-                    ibm_db.bind_param(stmt, 3, cast(str, db2_doc["meta"]))  # type: ignore[arg-type]
-
-                    result = ibm_db.execute(stmt)  # type: ignore[arg-type]
-                    if not result:
-                        msg = f"Failed to execute statement: {ibm_db.stmt_error(stmt)}"  # type: ignore[arg-type]
-                        raise DocumentStoreError(msg)
-
-                    written += 1
-
-                except ValueError:
-                    # Re-raise validation errors (missing embedding, wrong dimension)
-                    raise
-                except Exception as e:
-                    error_msg = str(e)
-                    # Check for DB2 duplicate key error (SQL0803N)
-                    if "SQL0803N" in error_msg or "duplicate" in error_msg.lower():
-                        if policy == DuplicatePolicy.FAIL:
-                            msg = f"Document {doc.id} already exists"
-                            raise DuplicateDocumentError(msg) from e
-                        elif policy == DuplicatePolicy.SKIP:
-                            continue
-                        elif policy == DuplicatePolicy.OVERWRITE:
-                            continue
-                        else:
-                            # NONE raises ValueError for duplicates
-                            msg = f"Document {doc.id} already exists"
-                            raise ValueError(msg) from e
-
-                    msg = f"Error writing document {doc.id}: {e}"
-                    logger.error(msg, exc_info=True)
-                    raise DocumentStoreError(msg) from e
+            # Choose insertion strategy based on use_batch_insert flag
+            if self.use_batch_insert:
+                written += self._write_documents_batch(batch, policy, conn)
+            else:
+                written += self._write_documents_individually(batch, policy, conn)
 
         logger.info(f"Written {written} documents")
+        return written
+
+    def _write_documents_batch(
+        self, documents: list[Document], policy: DuplicatePolicy, conn: Any
+    ) -> int:
+        """
+        Write documents using multi-row INSERT for better performance.
+        
+        :param documents: Documents to write.
+        :param policy: Duplicate handling policy.
+        :param conn: Database connection.
+        :return: Number of documents written.
+        """
+        try:
+            # Convert all documents and validate
+            batch_data = []
+            for doc in documents:
+                db2_doc = document_to_db2_dict(doc, self.embedding_dimension)
+                batch_data.append((
+                    doc.id,
+                    doc.content or "",
+                    cast(str, db2_doc["meta"]),
+                    db2_doc["embedding"]
+                ))
+
+            # Build multi-row INSERT SQL
+            insert_sql, params = self.query_builder.build_insert_documents_batch(batch_data)
+            
+            # Prepare and execute
+            stmt = ibm_db.prepare(conn, insert_sql)
+            if not stmt:
+                msg = f"Failed to prepare batch insert: {ibm_db.stmt_error()}"
+                raise DocumentStoreError(msg)
+
+            # Bind all parameters
+            for idx, param in enumerate(params, 1):
+                ibm_db.bind_param(stmt, idx, param)  # type: ignore[arg-type]
+
+            result = ibm_db.execute(stmt)  # type: ignore[arg-type]
+            if not result:
+                msg = f"Failed to execute batch insert: {ibm_db.stmt_error(stmt)}"  # type: ignore[arg-type]
+                raise DocumentStoreError(msg)
+
+            return len(documents)
+
+        except ValueError:
+            # Re-raise validation errors
+            raise
+        except Exception as e:
+            error_msg = str(e)
+            # Check for DB2 duplicate key error
+            if "SQL0803N" in error_msg or "duplicate" in error_msg.lower():
+                if policy == DuplicatePolicy.FAIL:
+                    msg = f"Duplicate documents in batch"
+                    raise DuplicateDocumentError(msg) from e
+                elif policy == DuplicatePolicy.SKIP or policy == DuplicatePolicy.OVERWRITE:
+                    # Fall back to individual inserts for granular handling
+                    logger.warning("Batch insert failed due to duplicates, falling back to individual inserts")
+                    return self._write_documents_individually(documents, policy, conn)
+                else:
+                    msg = f"Duplicate documents in batch"
+                    raise ValueError(msg) from e
+
+            msg = f"Error writing batch: {e}"
+            logger.error(msg, exc_info=True)
+            raise DocumentStoreError(msg) from e
+
+    def _write_documents_individually(
+        self, documents: list[Document], policy: DuplicatePolicy, conn: Any
+    ) -> int:
+        """
+        Fallback method to write documents one-by-one.
+        
+        Used when batch insertion fails due to duplicates or other errors.
+        
+        :param documents: Documents to write.
+        :param policy: Duplicate handling policy.
+        :param conn: Database connection.
+        :return: Number of documents written.
+        """
+        written = 0
+        
+        for doc in documents:
+            try:
+                # Use converter for validation and conversion
+                db2_doc = document_to_db2_dict(doc, self.embedding_dimension)
+                embedding_str = db2_doc["embedding"]
+
+                # Use QueryBuilder for SQL construction
+                insert_sql, _ = self.query_builder.build_insert_document(embedding_str)
+
+                stmt = ibm_db.prepare(conn, insert_sql)
+                if not stmt:
+                    msg = f"Failed to prepare statement: {ibm_db.stmt_error()}"
+                    raise DocumentStoreError(msg)
+
+                # Bind parameters
+                ibm_db.bind_param(stmt, 1, doc.id)  # type: ignore[arg-type]
+                ibm_db.bind_param(stmt, 2, doc.content or "")  # type: ignore[arg-type]
+                ibm_db.bind_param(stmt, 3, cast(str, db2_doc["meta"]))  # type: ignore[arg-type]
+
+                result = ibm_db.execute(stmt)  # type: ignore[arg-type]
+                if not result:
+                    msg = f"Failed to execute statement: {ibm_db.stmt_error(stmt)}"  # type: ignore[arg-type]
+                    raise DocumentStoreError(msg)
+
+                written += 1
+
+            except Exception as e:
+                error_msg = str(e)
+                # Check for DB2 duplicate key error (SQL0803N)
+                if "SQL0803N" in error_msg or "duplicate" in error_msg.lower():
+                    if policy == DuplicatePolicy.FAIL:
+                        msg = f"Document {doc.id} already exists"
+                        raise DuplicateDocumentError(msg) from e
+                    elif policy == DuplicatePolicy.SKIP or policy == DuplicatePolicy.OVERWRITE:
+                        # Skip this document
+                        continue
+                    else:
+                        # NONE raises ValueError for duplicates
+                        msg = f"Document {doc.id} already exists"
+                        raise ValueError(msg) from e
+
+                msg = f"Error writing document {doc.id}: {e}"
+                logger.error(msg, exc_info=True)
+                raise DocumentStoreError(msg) from e
+        
         return written
 
     def filter_documents(
@@ -1282,6 +1358,7 @@ class DB2DocumentStore:
 
         store = DB2DocumentStore(
             database="TESTDB",
+            hostname="db2.example.com",
             username=Secret.from_env_var("DB2_USER"),
             password=Secret.from_env_var("DB2_PASSWORD"),
             embedding_dimension=384
@@ -1343,11 +1420,19 @@ class DB2DocumentStore:
         from haystack_integrations.document_stores.db2 import DB2DocumentStore
         from haystack.utils import Secret
 
+        import os
+
+        use_ssl = os.getenv("DB2_SSL_ENABLED", "").lower() in {"1", "true", "yes"}
+        port = int(os.getenv("DB2_SSL_PORT", "50001")) if use_ssl else int(os.getenv("DB2_PORT", "50000"))
+
         store = DB2DocumentStore(
-            database="TESTDB",
+            database=os.getenv("DB2_DATABASE", "TESTDB"),
+            hostname=os.getenv("DB2_HOSTNAME"),
+            port=port,
             username=Secret.from_env_var("DB2_USER"),
             password=Secret.from_env_var("DB2_PASSWORD"),
-            embedding_dimension=384
+            embedding_dimension=384,
+            use_ssl=use_ssl,
         )
 
         # Query with keywords

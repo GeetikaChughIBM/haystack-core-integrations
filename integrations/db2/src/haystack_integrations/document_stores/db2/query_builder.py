@@ -89,7 +89,7 @@ class DB2QueryBuilder:
 
     def build_insert_document(self, embedding_str: str) -> tuple[str, list[Any]]:
         """
-        Build INSERT document statement.
+        Build INSERT document statement for single document.
 
         Note: embedding_str is embedded in SQL (not parameterized) because
         DB2 VECTOR type requires literal value in CAST expression.
@@ -103,6 +103,42 @@ class DB2QueryBuilder:
         VALUES (?, ?, CAST('{embedding_str}' AS VECTOR({self.embedding_dimension}, {self.vector_type})), ?)
         """
         return sql, []  # Parameters (id, content, meta) will be bound separately
+
+    def build_insert_documents_batch(self, documents_data: list[tuple[str, str, str, str]]) -> tuple[str, list[Any]]:
+        """
+        Build multi-row INSERT statement for batch insertion.
+
+        Constructs a single INSERT with multiple VALUE clauses for improved performance.
+        Each document's embedding is embedded in the SQL (DB2 VECTOR type requirement).
+
+        Note: This method is more efficient than individual inserts but may hit SQL length
+        limits with very large batches. Recommended batch size: 100-500 documents.
+
+        :param documents_data: List of tuples (id, content, meta, embedding_str) for each document.
+        :return: Tuple of (SQL query, parameter list for all documents).
+        """
+        if not documents_data:
+            return "", []
+
+        # Build VALUES clauses
+        values_clauses = []
+        params = []
+        
+        for doc_id, content, meta, embedding_str in documents_data:
+            # Each VALUE clause: (?, ?, CAST('...' AS VECTOR), ?)
+            values_clause = f"(?, ?, CAST('{embedding_str}' AS VECTOR({self.embedding_dimension}, {self.vector_type})), ?)"
+            values_clauses.append(values_clause)
+            # Add parameters for this document (id, content, meta)
+            params.extend([doc_id, content, meta])
+
+        # Combine into single INSERT statement
+        values_sql = ",\n".join(values_clauses)
+        sql = f"""
+        INSERT INTO {self.table_name} (id, content, embedding, meta)
+        VALUES {values_sql}
+        """
+        
+        return sql, params
 
     def build_delete_by_ids(self, num_ids: int) -> tuple[str, list[Any]]:
         """
