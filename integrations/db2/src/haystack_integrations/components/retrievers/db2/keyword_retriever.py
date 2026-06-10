@@ -52,6 +52,7 @@ class DB2KeywordRetriever:
         password=Secret.from_env_var("DB2_PASSWORD"),
         embedding_dimension=384,
         use_ssl=use_ssl,
+        ssl_certificate=os.getenv("DB2_SSL_CERTIFICATE") or os.getenv("DB2_SSL_CERT_PATH"),
     )
 
     retriever = DB2KeywordRetriever(document_store=document_store, top_k=10)

@@ -23,7 +23,6 @@ logger = logging.getLogger(__name__)
 # Constants for DB2 configuration
 DEFAULT_PORT = 50000
 DEFAULT_SSL_PORT = 50001
-DEFAULT_HOST = "localhost"
 PROTOCOL = "TCPIP"
 VECTOR_TYPE = "FLOAT32"
 MAX_VECTOR_DIMENSION = 16000  # DB2 VECTOR type maximum dimension limit
@@ -112,7 +111,8 @@ class DB2DocumentStore:
 
         In typical usage, these values come from environment variables such as
         `DB2_DATABASE`, `DB2_HOSTNAME`, `DB2_PORT`, `DB2_SSL_PORT`, `DB2_USER`,
-        `DB2_PASSWORD`, and `DB2_SSL_ENABLED`.
+        `DB2_PASSWORD`, and `DB2_SSL_ENABLED`. The hostname must be provided
+        explicitly for parameter-based connections and is not defaulted.
 
         All connection methods use explicit TCP/IP protocol (`PROTOCOL=TCPIP`) for consistency.
 
@@ -120,7 +120,7 @@ class DB2DocumentStore:
         :param database: Database name.
         :param username: Database username.
         :param password: Database password.
-        :param hostname: Database hostname. 
+        :param hostname: Database hostname. Required for parameter-based connections.
         :param port: Database port. Use `DB2_PORT` for non-SSL connections and `DB2_SSL_PORT` for SSL connections.
         :param table_name: Table name for documents.
         :param embedding_dimension: Embedding vector dimension.
@@ -195,14 +195,13 @@ class DB2DocumentStore:
                     conn_str += f"SSLServerCertificate={ssl_certificate};"
 
             self._connection_string = conn_str
-        elif database and username and password:
+        elif database and username and password and hostname:
             user = username.resolve_value()
             pwd = password.resolve_value()
-            resolved_hostname = hostname or DEFAULT_HOST
             resolved_port = DEFAULT_SSL_PORT if use_ssl and port == DEFAULT_PORT else port
 
             conn_str = (
-                f"DATABASE={database};HOSTNAME={resolved_hostname};PORT={resolved_port};"
+                f"DATABASE={database};HOSTNAME={hostname};PORT={resolved_port};"
                 f"PROTOCOL={PROTOCOL};UID={user};PWD={pwd};"
             )
 
@@ -215,7 +214,7 @@ class DB2DocumentStore:
         else:
             msg = (
                 "Provide either: (1) connection_string, or "
-                "(2) database + username + password with optional hostname + port"
+                "(2) database + username + password + hostname with optional port"
             )
             raise DocumentStoreError(msg)
 
@@ -1120,9 +1119,7 @@ class DB2DocumentStore:
         :raises DocumentStoreError: If query execution fails.
         """
         conn = self._get_connection()
-
-        # Get all unique metadata keys from documents
-        sql = f"SELECT DISTINCT meta FROM {self.qualified_table_name} WHERE meta IS NOT NULL"
+        sql = f"SELECT meta FROM {self.qualified_table_name} WHERE meta IS NOT NULL"
 
         try:
             stmt = ibm_db.exec_immediate(conn, sql)
@@ -1132,23 +1129,30 @@ class DB2DocumentStore:
                 row = ibm_db.fetch_assoc(stmt)  # type: ignore[arg-type]
                 if row is False or not isinstance(row, dict):
                     break
-                if row.get("META"):
-                    try:
-                        meta = json.loads(cast(str, row["META"]))
-                        for key, value in meta.items():
-                            if key not in fields_info:
-                                # Determine type based on value
-                                if isinstance(value, bool):
-                                    field_type = "boolean"
-                                elif isinstance(value, int):
-                                    field_type = "integer"
-                                elif isinstance(value, float):
-                                    field_type = "float"
-                                else:
-                                    field_type = "string"
-                                fields_info[key] = {"type": field_type}
-                    except json.JSONDecodeError:
+
+                meta_value = row.get("META")
+                if not meta_value:
+                    continue
+
+                try:
+                    meta = json.loads(cast(str, meta_value))
+                except json.JSONDecodeError:
+                    continue
+
+                for key, value in meta.items():
+                    if key in fields_info:
                         continue
+
+                    if isinstance(value, bool):
+                        field_type = "boolean"
+                    elif isinstance(value, int):
+                        field_type = "integer"
+                    elif isinstance(value, float):
+                        field_type = "float"
+                    else:
+                        field_type = "string"
+
+                    fields_info[key] = {"type": field_type}
 
             return fields_info
         except Exception as e:
@@ -1164,18 +1168,35 @@ class DB2DocumentStore:
         :raises DocumentStoreError: If query execution fails.
         """
         conn = self._get_connection()
-        sql = f"SELECT DISTINCT JSON_VALUE(meta, '$.{field}') as value FROM {self.qualified_table_name} WHERE JSON_VALUE(meta, '$.{field}') IS NOT NULL"
+        sql = f"SELECT meta FROM {self.qualified_table_name} WHERE meta IS NOT NULL"
 
         try:
             stmt = ibm_db.exec_immediate(conn, sql)
-            values = []
+            values: list[Any] = []
+            seen: set[str] = set()
 
             while True:
                 row = ibm_db.fetch_assoc(stmt)  # type: ignore[arg-type]
                 if row is False or not isinstance(row, dict):
                     break
-                if row.get("VALUE"):
-                    values.append(cast(Any, row["VALUE"]))
+
+                meta_value = row.get("META")
+                if not meta_value:
+                    continue
+
+                try:
+                    meta = json.loads(cast(str, meta_value))
+                except json.JSONDecodeError:
+                    continue
+
+                if field not in meta or meta[field] is None:
+                    continue
+
+                value = cast(Any, meta[field])
+                marker = json.dumps(value, sort_keys=True, default=str)
+                if marker not in seen:
+                    seen.add(marker)
+                    values.append(value)
 
             return values
         except Exception as e:
@@ -1191,43 +1212,50 @@ class DB2DocumentStore:
         :raises ValueError: If field doesn't exist or is not numeric.
         """
         conn = self._get_connection()
-
-        # Check if field exists
-        check_sql = (
-            f"SELECT JSON_VALUE(meta, '$.{field}') as value "
-            f"FROM {self.qualified_table_name} "
-            f"WHERE JSON_VALUE(meta, '$.{field}') IS NOT NULL "
-            "FETCH FIRST 1 ROWS ONLY"
-        )
-
-        try:
-            stmt = ibm_db.exec_immediate(conn, check_sql)
-            if not ibm_db.fetch_assoc(stmt):  # type: ignore[arg-type]
-                msg = f"Field '{field}' not found in document store"
-                raise DocumentStoreError(msg)
-        except Exception as e:
-            msg = f"Field '{field}' not found in document store"
-            raise DocumentStoreError(msg) from e
-
-        # Get min and max
-        sql = f"""
-        SELECT
-            MIN(CAST(JSON_VALUE(meta, '$.{field}') AS DECIMAL)) as min_value,
-            MAX(CAST(JSON_VALUE(meta, '$.{field}') AS DECIMAL)) as max_value
-        FROM {self.qualified_table_name}
-        WHERE JSON_VALUE(meta, '$.{field}') IS NOT NULL
-        """
+        sql = f"SELECT meta FROM {self.qualified_table_name} WHERE meta IS NOT NULL"
 
         try:
             stmt = ibm_db.exec_immediate(conn, sql)
-            row = ibm_db.fetch_assoc(stmt)  # type: ignore[arg-type]
+            numeric_values: list[float] = []
+            field_found = False
 
-            if row is not False and isinstance(row, dict):
-                return (float(cast(Any, row["MIN_VALUE"])), float(cast(Any, row["MAX_VALUE"])))
-            return (None, None)
+            while True:
+                row = ibm_db.fetch_assoc(stmt)  # type: ignore[arg-type]
+                if row is False or not isinstance(row, dict):
+                    break
+
+                meta_value = row.get("META")
+                if not meta_value:
+                    continue
+
+                try:
+                    meta = json.loads(cast(str, meta_value))
+                except json.JSONDecodeError:
+                    continue
+
+                if field not in meta or meta[field] is None:
+                    continue
+
+                field_found = True
+                value = meta[field]
+                if isinstance(value, bool) or not isinstance(value, (int, float)):
+                    raise ValueError(f"Field '{field}' is not numeric")
+
+                numeric_values.append(float(value))
+
+            if not field_found:
+                raise ValueError(f"Field '{field}' not found in metadata")
+
+            if not numeric_values:
+                return (None, None)
+
+            return (min(numeric_values), max(numeric_values))
+        except ValueError:
+            raise
         except Exception as e:
             msg = f"Error getting min/max for field {field}: {e}"
             raise DocumentStoreError(msg) from e
+
 
     def to_dict(self) -> dict[str, Any]:
         """
@@ -1244,6 +1272,7 @@ class DB2DocumentStore:
             hostname=self._hostname,
             port=self._port,
             table_name=self.table_name,
+            schema_name=self.schema_name,
             embedding_dimension=self.embedding_dimension,
             distance_metric=self.distance_metric,
             embedding_model=self.embedding_model,
@@ -1251,6 +1280,7 @@ class DB2DocumentStore:
             batch_size=self.batch_size,
             use_ssl=self._use_ssl,
             ssl_certificate=self._ssl_certificate,
+            use_batch_insert=self.use_batch_insert,
         )
 
     @classmethod

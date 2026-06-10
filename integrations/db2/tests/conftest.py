@@ -34,8 +34,9 @@ def document_store_env(request, monkeypatch):
     if not all([db2_database, db2_user, db2_password]):
         pytest.skip("DB2 credentials not available. Set DB2_DATABASE, DB2_USER, and DB2_PASSWORD in .env")
 
-    test_name = request.node.name.replace("test_", "")[:30]
-    table_name = f"hs_{test_name}"
+    raw_test_name = request.node.name.replace("test_", "")
+    sanitized_test_name = "".join(ch if ch.isalnum() or ch == "_" else "_" for ch in raw_test_name)
+    table_name = f"hs_{sanitized_test_name[:26]}"
     embedding_dimension = 384
     distance_metric = "cosine"
     recreate_table = True

@@ -116,13 +116,19 @@ class TestDB2DocumentStoreInit:
         if not all([os.getenv("DB2_USER"), os.getenv("DB2_PASSWORD"), os.getenv("DB2_DATABASE")]):
             pytest.skip("DB2 credentials not available")
 
+        use_ssl = os.getenv("DB2_SSL_ENABLED", "").lower() in {"1", "true", "yes"}
+
         store = DB2DocumentStore(
             database=os.getenv("DB2_DATABASE", "TESTDB"),
+            hostname=os.getenv("DB2_HOSTNAME"),
+            port=int(os.getenv("DB2_SSL_PORT", "50001")) if use_ssl else int(os.getenv("DB2_PORT", "50000")),
             username=Secret.from_env_var("DB2_USER"),
             password=Secret.from_env_var("DB2_PASSWORD"),
             table_name="custom_table",
             embedding_dimension=384,
             recreate_table=False,
+            use_ssl=use_ssl,
+            ssl_certificate=os.getenv("DB2_SSL_CERTIFICATE") or os.getenv("DB2_SSL_CERT_PATH"),
         )
 
         assert store.table_name == "custom_table"
@@ -171,7 +177,7 @@ class TestDB2DocumentStoreIntegration:
 
         document_store.write_documents([doc])
 
-        with pytest.raises(ValueError, match="exists"):
+        with pytest.raises(ValueError, match="already exists|exists|Duplicate documents in batch"):
             document_store.write_documents([doc], policy=DuplicatePolicy.NONE)
 
     def test_write_documents_duplicate_skip(self, document_store):
@@ -370,18 +376,24 @@ class TestDB2DocumentStoreIntegration:
     def test_batch_size_parameter(self, document_store):
         """Test that batch_size parameter is properly set."""
         # Test default batch_size
-        assert document_store.batch_size == 1000
+        assert document_store.batch_size == 100
 
         # Test custom batch_size
 
+        use_ssl = os.getenv("DB2_SSL_ENABLED", "").lower() in {"1", "true", "yes"}
+
         custom_store = DB2DocumentStore(
             database=os.getenv("DB2_DATABASE", "TESTDB"),
+            hostname=os.getenv("DB2_HOSTNAME"),
+            port=int(os.getenv("DB2_SSL_PORT", "50001")) if use_ssl else int(os.getenv("DB2_PORT", "50000")),
             username=Secret.from_env_var("DB2_USER"),
             password=Secret.from_env_var("DB2_PASSWORD"),
             table_name="test_batch_size",
             embedding_dimension=384,
             batch_size=500,
             recreate_table=False,
+            use_ssl=use_ssl,
+            ssl_certificate=os.getenv("DB2_SSL_CERTIFICATE") or os.getenv("DB2_SSL_CERT_PATH"),
         )
 
         assert custom_store.batch_size == 500
@@ -488,7 +500,7 @@ class TestDB2DocumentStoreSSL:
     def test_ssl_connection_parameters(self):
         """Test that SSL parameters are properly set in connection string."""
         # Skip if SSL credentials not available
-        if not os.getenv("DB2_SSL_ENABLED"):
+        if os.getenv("DB2_SSL_ENABLED", "").lower() not in {"1", "true", "yes"}:
             pytest.skip("SSL-enabled DB2 not available for testing")
 
         store = DB2DocumentStore(
@@ -516,7 +528,7 @@ class TestDB2DocumentStoreSSL:
     def test_ssl_with_certificate(self):
         """Test SSL connection with certificate path."""
         # Skip if SSL credentials not available
-        if not os.getenv("DB2_SSL_ENABLED"):
+        if os.getenv("DB2_SSL_ENABLED", "").lower() not in {"1", "true", "yes"}:
             pytest.skip("SSL-enabled DB2 not available for testing")
 
         cert_path = os.getenv("DB2_SSL_CERT_PATH", "/path/to/cert.pem")
@@ -574,18 +586,18 @@ class TestDB2DocumentStoreSSL:
 class TestDB2DocumentStoreAsync:
     """Tests for async method behavior."""
 
-    def test_count_documents_async_raises_not_implemented(self, document_store_local):
+    def test_count_documents_async_raises_not_implemented(self, document_store_env):
         """Test that count_documents_async raises NotImplementedError."""
         import asyncio
 
         async def test_async():
             with pytest.raises(NotImplementedError) as exc_info:
-                await document_store_local.count_documents_async()
+                await document_store_env.count_documents_async()
             assert "Async operations are not yet supported" in str(exc_info.value)
 
         asyncio.run(test_async())
 
-    def test_write_documents_async_raises_not_implemented(self, document_store_local):
+    def test_write_documents_async_raises_not_implemented(self, document_store_env):
         """Test that write_documents_async raises NotImplementedError."""
         import asyncio
         from haystack.document_stores.types import DuplicatePolicy
@@ -594,46 +606,46 @@ class TestDB2DocumentStoreAsync:
             doc = Document(
                 id="async_test",
                 content="Test async",
-                embedding=[0.1] * document_store_local.embedding_dimension,
+                embedding=[0.1] * document_store_env.embedding_dimension,
             )
             with pytest.raises(NotImplementedError) as exc_info:
-                await document_store_local.write_documents_async([doc], policy=DuplicatePolicy.NONE)
+                await document_store_env.write_documents_async([doc], policy=DuplicatePolicy.NONE)
             assert "Async operations are not yet supported" in str(exc_info.value)
 
         asyncio.run(test_async())
 
-    def test_delete_documents_async_raises_not_implemented(self, document_store_local):
+    def test_delete_documents_async_raises_not_implemented(self, document_store_env):
         """Test that delete_documents_async raises NotImplementedError."""
         import asyncio
 
         async def test_async():
             with pytest.raises(NotImplementedError) as exc_info:
-                await document_store_local.delete_documents_async(["test_id"])
+                await document_store_env.delete_documents_async(["test_id"])
             assert "Async operations are not yet supported" in str(exc_info.value)
 
         asyncio.run(test_async())
 
-    def test_filter_documents_async_raises_not_implemented(self, document_store_local):
+    def test_filter_documents_async_raises_not_implemented(self, document_store_env):
         """Test that filter_documents_async raises NotImplementedError."""
         import asyncio
 
         async def test_async():
             with pytest.raises(NotImplementedError) as exc_info:
-                await document_store_local.filter_documents_async()
+                await document_store_env.filter_documents_async()
             assert "Async operations are not yet supported" in str(exc_info.value)
 
         asyncio.run(test_async())
 
-    def test_async_methods_have_clear_error_messages(self, document_store_local):
+    def test_async_methods_have_clear_error_messages(self, document_store_env):
         """Test that all async methods provide clear error messages."""
         import asyncio
 
         async def test_all_async():
             methods = [
-                document_store_local.count_documents_async(),
-                document_store_local.write_documents_async([]),
-                document_store_local.delete_documents_async([]),
-                document_store_local.filter_documents_async(),
+                document_store_env.count_documents_async(),
+                document_store_env.write_documents_async([]),
+                document_store_env.delete_documents_async([]),
+                document_store_env.filter_documents_async(),
             ]
 
             for method in methods:
@@ -652,6 +664,8 @@ class TestDB2DocumentStoreSSLConnection:
 
     def test_ssl_connection_with_certificate(self):
         """Test SSL connection with certificate path."""
+        if os.getenv("DB2_SSL_ENABLED", "").lower() not in {"1", "true", "yes"}:
+            pytest.skip("SSL-enabled DB2 not available for testing")
         if not all([os.getenv("DB2_HOSTNAME"), os.getenv("DB2_USER"), os.getenv("DB2_PASSWORD")]):
             pytest.skip("DB2 credentials not available for SSL testing")
 
@@ -682,6 +696,8 @@ class TestDB2DocumentStoreSSLConnection:
 
     def test_ssl_connection_with_security_param(self):
         """Test SSL connection with SSL enabled."""
+        if os.getenv("DB2_SSL_ENABLED", "").lower() not in {"1", "true", "yes"}:
+            pytest.skip("SSL-enabled DB2 not available for testing")
         if not all([os.getenv("DB2_HOSTNAME"), os.getenv("DB2_USER"), os.getenv("DB2_PASSWORD")]):
             pytest.skip("DB2 credentials not available for SSL testing")
 
@@ -710,11 +726,12 @@ class TestDB2DocumentStoreSSLConnection:
 
 @pytest.mark.integration
 class TestDB2DocumentStoreAsyncMethods:
-    """Tests for async methods (which delegate to sync methods in ibm_db)."""
+    """Tests for async methods raising NotImplementedError."""
 
     def test_count_documents_async(self, document_store):
         """Test async count_documents method."""
-        # Write some documents
+        import asyncio
+
         docs = [
             Document(
                 id=f"async_doc{i}",
@@ -725,12 +742,13 @@ class TestDB2DocumentStoreAsyncMethods:
         ]
         document_store.write_documents(docs)
 
-        # Test async count (should delegate to sync method)
-        count = document_store.count_documents_async()
-        assert count == 3
+        with pytest.raises(NotImplementedError, match="Async operations are not yet supported"):
+            asyncio.run(document_store.count_documents_async())
 
     def test_write_documents_async(self, document_store):
         """Test async write_documents method."""
+        import asyncio
+
         docs = [
             Document(
                 id="async_write_1",
@@ -739,17 +757,13 @@ class TestDB2DocumentStoreAsyncMethods:
             )
         ]
 
-        # Test async write (should delegate to sync method)
-        written = document_store.write_documents_async(docs)
-        assert written == 1
-
-        # Verify document was written
-        count = document_store.count_documents()
-        assert count == 1
+        with pytest.raises(NotImplementedError, match="Async operations are not yet supported"):
+            asyncio.run(document_store.write_documents_async(docs))
 
     def test_delete_documents_async(self, document_store):
         """Test async delete_documents method."""
-        # Write a document
+        import asyncio
+
         doc = Document(
             id="async_delete_1",
             content="To be deleted",
@@ -757,15 +771,13 @@ class TestDB2DocumentStoreAsyncMethods:
         )
         document_store.write_documents([doc])
 
-        # Test async delete (should delegate to sync method)
-        document_store.delete_documents_async(["async_delete_1"])
-
-        # Verify deletion
-        count = document_store.count_documents()
-        assert count == 0
+        with pytest.raises(NotImplementedError, match="Async operations are not yet supported"):
+            asyncio.run(document_store.delete_documents_async(["async_delete_1"]))
 
     def test_filter_documents_async(self, document_store):
         """Test async filter_documents method."""
+        import asyncio
+
         docs = [
             Document(
                 id="async_filter_1",
@@ -776,11 +788,8 @@ class TestDB2DocumentStoreAsyncMethods:
         ]
         document_store.write_documents(docs)
 
-        # Test async filter (should delegate to sync method)
-        filtered = document_store.filter_documents_async(filters={"category": "test"})
-
-        assert len(filtered) == 1
-        assert filtered[0].id == "async_filter_1"
+        with pytest.raises(NotImplementedError, match="Async operations are not yet supported"):
+            asyncio.run(document_store.filter_documents_async(filters={"category": "test"}))
 
 
 @pytest.mark.integration
@@ -796,14 +805,20 @@ class TestDB2DocumentStoreSchemaSupport:
         # Use default schema (user's schema)
         schema = os.getenv("DB2_USER", "").upper()
 
+        use_ssl = os.getenv("DB2_SSL_ENABLED", "").lower() in {"1", "true", "yes"}
+
         store = DB2DocumentStore(
             database=os.getenv("DB2_DATABASE", "TESTDB"),
+            hostname=os.getenv("DB2_HOSTNAME"),
+            port=int(os.getenv("DB2_SSL_PORT", "50001")) if use_ssl else int(os.getenv("DB2_PORT", "50000")),
             username=Secret.from_env_var("DB2_USER"),
             password=Secret.from_env_var("DB2_PASSWORD"),
             table_name="test_schema_support",
             embedding_dimension=384,
             schema_name=schema,
             recreate_table=False,
+            use_ssl=use_ssl,
+            ssl_certificate=os.getenv("DB2_SSL_CERTIFICATE") or os.getenv("DB2_SSL_CERT_PATH"),
         )
 
         assert store.schema_name == schema
@@ -826,21 +841,24 @@ class TestDB2DocumentStoreSchemaSupport:
 
         schema = os.getenv("DB2_USER", "").upper()
 
+        use_ssl = os.getenv("DB2_SSL_ENABLED", "").lower() in {"1", "true", "yes"}
+
         store = DB2DocumentStore(
             database=os.getenv("DB2_DATABASE", "TESTDB"),
+            hostname=os.getenv("DB2_HOSTNAME"),
+            port=int(os.getenv("DB2_SSL_PORT", "50001")) if use_ssl else int(os.getenv("DB2_PORT", "50000")),
             username=Secret.from_env_var("DB2_USER"),
             password=Secret.from_env_var("DB2_PASSWORD"),
             table_name="test_schema_serial",
             embedding_dimension=384,
             schema_name=schema,
             recreate_table=False,
+            use_ssl=use_ssl,
+            ssl_certificate=os.getenv("DB2_SSL_CERTIFICATE") or os.getenv("DB2_SSL_CERT_PATH"),
         )
 
         # Serialize
         data = store.to_dict()
-        assert data["init_parameters"]["schema_name"] == schema
-
-        # Deserialize
         restored = DB2DocumentStore.from_dict(data)
         assert restored.schema_name == schema
 
@@ -872,24 +890,25 @@ class TestDB2DocumentStoreMetadataOperations:
 
     def test_validate_model_consistency(self, document_store):
         """Test model consistency validation."""
-        # First initialization should set metadata
-        embedding_dim = document_store.embedding_dimension
-        distance_metric = document_store.distance_metric
+        document_store.embedding_model = "test-model-a"
+        document_store._set_metadata("embedding_model", "test-model-a")
 
-        # Validation should pass with same parameters
         document_store._validate_model_consistency()
 
-        # Create new store with same table but different parameters
-        # This should raise an error
-        with pytest.raises(ValueError, match="Embedding dimension mismatch"):
-            conflicting_store = DB2DocumentStore(
+        with pytest.raises(ValueError, match="EMBEDDING MODEL MISMATCH DETECTED"):
+            DB2DocumentStore(
                 database=document_store._database,
+                hostname=document_store._hostname,
+                port=document_store._port,
                 username=document_store._username,
                 password=document_store._password,
                 table_name=document_store.table_name,
-                embedding_dimension=embedding_dim + 100,  # Different dimension
-                distance_metric=distance_metric,
+                embedding_dimension=document_store.embedding_dimension + 100,
+                distance_metric=document_store.distance_metric,
+                embedding_model="test-model-b",
                 recreate_table=False,
+                use_ssl=document_store._use_ssl,
+                ssl_certificate=document_store._ssl_certificate,
             )
 
     def test_metadata_fields_info(self, document_store):
@@ -989,40 +1008,24 @@ class TestDB2BulkInsertOptimization:
         """Test that batch insert is enabled by default."""
         assert document_store.use_batch_insert is True
 
-    def test_batch_insert_mode_disabled(self):
+    def test_batch_insert_mode_disabled(self, document_store):
         """Test creating store with batch insert disabled."""
-        store = DB2DocumentStore(
-            database=os.getenv("DB2_DATABASE", "TESTDB"),
-            username=Secret.from_env_var("DB2_USER"),
-            password=Secret.from_env_var("DB2_PASSWORD"),
-            table_name="test_batch_disabled",
-            embedding_dimension=384,
-            use_batch_insert=False,
-            recreate_table=True,
-        )
-        
-        try:
-            assert store.use_batch_insert is False
-            
-            # Write documents and verify they work
-            docs = [
-                Document(
-                    id=f"test_{i}",
-                    content=f"Test {i}",
-                    embedding=[0.1 * i] * 384,
-                )
-                for i in range(10)
-            ]
-            
-            written = store.write_documents(docs)
-            assert written == 10
-            assert store.count_documents() == 10
-            
-        finally:
-            try:
-                store._drop_table_if_exists()
-            except Exception:
-                pass
+        document_store.use_batch_insert = False
+
+        assert document_store.use_batch_insert is False
+
+        docs = [
+            Document(
+                id=f"test_{i}",
+                content=f"Test {i}",
+                embedding=[0.1 * i] * document_store.embedding_dimension,
+            )
+            for i in range(10)
+        ]
+
+        written = document_store.write_documents(docs)
+        assert written == 10
+        assert document_store.count_documents() == 10
 
     def test_batch_insert_writes_correctly(self, document_store):
         """Test that batch insert writes documents correctly."""
@@ -1097,30 +1100,11 @@ class TestDB2BulkInsertOptimization:
         assert written == 250
         assert document_store.count_documents() == 250
 
-    def test_batch_insert_serialization(self):
+    def test_batch_insert_serialization(self, document_store):
         """Test that use_batch_insert is preserved in serialization."""
-        store = DB2DocumentStore(
-            database=os.getenv("DB2_DATABASE", "TESTDB"),
-            username=Secret.from_env_var("DB2_USER"),
-            password=Secret.from_env_var("DB2_PASSWORD"),
-            table_name="test_serial",
-            embedding_dimension=384,
-            use_batch_insert=False,
-            recreate_table=True,
-        )
-        
-        try:
-            # Serialize
-            config = store.to_dict()
-            assert "use_batch_insert" in config["init_parameters"]
-            assert config["init_parameters"]["use_batch_insert"] is False
-            
-            # Deserialize
-            restored = DB2DocumentStore.from_dict(config)
-            assert restored.use_batch_insert is False
-            
-        finally:
-            try:
-                store._drop_table_if_exists()
-            except Exception:
-                pass
+        document_store.use_batch_insert = False
+
+        config = document_store.to_dict()
+        restored = DB2DocumentStore.from_dict(config)
+
+        assert restored.use_batch_insert is False

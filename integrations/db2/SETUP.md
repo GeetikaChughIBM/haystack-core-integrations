@@ -37,18 +37,17 @@ cd haystack-core-integrations/integrations/db2
 
 ### What the Script Does
 
-1. ✅ Verifies Python 3.11 installation
+1. ✅ Verifies Python 3.10+ installation
 2. ✅ Creates virtual environment
 3. ✅ Upgrades pip
-4. ✅ Installs `ibm-db` driver
-5. ✅ Installs development dependencies (`pytest`, `pytest-cov`, `python-dotenv`)
+4. ✅ Installs [`ibm-db`](./pyproject.toml)
+5. ✅ Installs development dependencies
 6. ✅ Installs and verifies Hatch
-7. ✅ Runs type checks (`hatch run test:types`)
-8. ✅ Runs code formatter (`hatch run fmt`)
-9. ✅ Runs linter with auto-fix (`ruff`)
-10. ✅ Runs unit tests (optional)
-11. ✅ Validates examples (optional)
-12. ✅ Creates `.env` from `.env.example` (optional)
+7. ✅ Runs type checks
+8. ✅ Runs formatting and linting
+9. ✅ Runs unit tests (optional)
+10. ✅ Lists available examples (optional)
+11. ✅ Creates [`.env`](./.env) from [`.env.example`](./.env.example) if needed
 
 ---
 
@@ -60,36 +59,26 @@ If you prefer to set up manually or the automated script doesn't work for your e
 
 Ensure you have the following installed:
 
-- **Python 3.10+** (required - Python 3.10, 3.11, 3.12, or 3.13)
-- **pip** (latest version)
+- **Python 3.10+**
+- **pip**
 - **Git**
-- **Hatch** (will be installed if not present)
+- **Hatch**
 
 #### Install Python 3.10+
 
 **Ubuntu/Debian:**
 ```bash
 sudo apt update
-# Install Python 3.11 (recommended)
 sudo apt install python3.11 python3.11-venv python3.11-dev
-
-# Or Python 3.10
-sudo apt install python3.10 python3.10-venv python3.10-dev
 ```
 
 **macOS (using Homebrew):**
 ```bash
-# Install Python 3.11 (recommended)
 brew install python@3.11
-
-# Or Python 3.10
-brew install python@3.10
 ```
 
 **Windows:**
-Download Python 3.10+ from [python.org](https://www.python.org/downloads/)
-
-**Note:** The setup script will automatically detect and use the highest available Python version (3.10+).
+Download Python from [python.org](https://www.python.org/downloads/)
 
 ### Step 2: Clone Repository
 
@@ -101,19 +90,16 @@ cd haystack-core-integrations/integrations/db2
 ### Step 3: Create Virtual Environment
 
 ```bash
-# Create virtual environment with Python 3.10+
-# The script will auto-detect the best version, or you can specify:
-python3.11 -m venv venv  # If you have Python 3.11
-# OR
-python3.10 -m venv venv  # If you have Python 3.10
-
-# Activate virtual environment
-source venv/bin/activate  # Linux/macOS
-# OR
-venv\Scripts\activate     # Windows
+python3.11 -m venv venv
+source venv/bin/activate
 ```
 
-**Note:** The automated setup script (`setup_dev_environment.sh`) will automatically find and use the highest available Python version (3.10+).
+On Windows:
+
+```bash
+py -3.11 -m venv venv
+venv\Scripts\activate
+```
 
 ### Step 4: Upgrade pip
 
@@ -123,61 +109,21 @@ pip install --upgrade pip
 
 ### Step 5: Install IBM DB2 Driver
 
-The `ibm-db` driver is critical for DB2 connectivity:
-
 ```bash
 pip install ibm-db --no-cache-dir
 ```
 
-**Note:** This may take several minutes as it compiles native extensions.
-
-#### Troubleshooting ibm-db Installation
-
-If installation fails, you may need system dependencies:
-
-**Ubuntu/Debian:**
-```bash
-sudo apt-get install gcc python3-dev libxml2-dev libxslt1-dev
-```
-
-**macOS:**
-```bash
-xcode-select --install
-```
-
-**Windows:**
-- Install Visual Studio Build Tools
-- See: https://github.com/ibmdb/python-ibmdb#installation
-
 ### Step 6: Install Development Dependencies
 
 ```bash
-pip install pytest pytest-cov python-dotenv
+pip install pytest pytest-cov pytest-asyncio python-dotenv hatch
 ```
 
-### Step 7: Install Hatch
-
-Hatch is used for project management, testing, and code quality:
+### Step 7: Verify Setup
 
 ```bash
-pip install hatch
-```
-
-Verify installation:
-```bash
-hatch --version
-```
-
-### Step 8: Verify Setup
-
-```bash
-# Run type checks
 hatch run test:types
-
-# Format code
 hatch run fmt
-
-# Run unit tests
 hatch run test:unit
 ```
 
@@ -189,19 +135,10 @@ hatch run test:unit
 
 | Software | Version | Purpose |
 |----------|---------|---------|
-| Python | 3.11+ | Runtime environment |
+| Python | 3.10+ | Runtime environment |
 | pip | Latest | Package management |
-| Hatch | Latest | Project management & testing |
+| Hatch | Latest | Project management and testing |
 | ibm-db | Latest | DB2 driver |
-
-### Required Python Packages
-
-Installed automatically by the setup script:
-
-- `pytest` - Testing framework
-- `pytest-cov` - Code coverage
-- `python-dotenv` - Environment variable management
-- `ibm-db` - IBM DB2 driver
 
 ### Optional Tools
 
@@ -212,38 +149,42 @@ Installed automatically by the setup script:
 
 ## Environment Configuration
 
-### Step 1: Create .env File
+### Step 1: Create `.env`
 
 ```bash
-# Copy example configuration
 cp .env.example .env
 ```
 
 ### Step 2: Configure DB2 Credentials
 
-Edit `.env` and add your DB2 connection details:
+Edit [`.env`](./.env) and provide your DB2 connection details:
 
 ```bash
-# DB2 Connection Settings
-DB2_HOST=your-db2-host.com
+DB2_DATABASE=TESTDB
+DB2_HOSTNAME=your-db2-host.example.com
 DB2_PORT=50000
-DB2_DATABASE=your_database
-DB2_USERNAME=your_username
+DB2_SSL_PORT=50001
+DB2_SSL_ENABLED=false
+DB2_USER=your_username
 DB2_PASSWORD=your_password
-DB2_SCHEMA=your_schema  # Optional, defaults to username
+```
 
-# Optional: SSL Configuration
-DB2_USE_SSL=false
-DB2_SSL_CERT_PATH=/path/to/cert.pem
+Optional settings:
 
-# Optional: Connection Pool Settings
-DB2_POOL_SIZE=5
-DB2_MAX_OVERFLOW=10
+```bash
+# Optional full connection string
+# DB2_CONNECTION_STRING=DATABASE=TESTDB;HOSTNAME=your-db2-host.example.com;PORT=50000;PROTOCOL=TCPIP;UID=your_username;PWD=your_password;
+
+# Optional SSL certificate path
+# DB2_SSL_CERTIFICATE=/absolute/path/to/db2server.crt
+# DB2_SSL_CERT_PATH=/absolute/path/to/db2server.crt
+
+# Optional test/example overrides
+# DB2_TEST_TABLE=haystack_documents
+# DB2_EMBEDDING_DIMENSION=384
 ```
 
 ### Step 3: Verify Connection
-
-Test your DB2 connection:
 
 ```bash
 cd examples
@@ -256,21 +197,23 @@ python basic_usage.py
 
 ### Unit Tests Only
 
-Unit tests don't require a DB2 connection:
-
 ```bash
 hatch run test:unit
 ```
 
 ### Integration Tests
 
-Integration tests require a DB2 connection configured in `.env`:
+Integration tests require a reachable DB2 instance configured through [`.env`](./.env):
+
+```bash
+hatch run test:integration
+```
+
+### All Tests
 
 ```bash
 hatch run test:all
 ```
-
-**Note:** Integration tests may fail if DB2 is not accessible. This is expected in local development.
 
 ### Type Checking
 
@@ -278,10 +221,10 @@ hatch run test:all
 hatch run test:types
 ```
 
-### Code Coverage
+### Coverage
 
 ```bash
-hatch run test:cov
+pytest tests/ --cov=haystack_integrations --cov-report=html
 ```
 
 ### Specific Test File
@@ -290,17 +233,11 @@ hatch run test:cov
 pytest tests/test_document_store.py -v
 ```
 
-### Specific Test Function
-
-```bash
-pytest tests/test_document_store.py::test_write_documents -v
-```
-
 ---
 
 ## Running Examples
 
-All examples are located in the `examples/` directory.
+All examples are located in the [`examples/`](./examples/) directory.
 
 ### Basic Usage
 
@@ -309,37 +246,26 @@ cd examples
 python basic_usage.py
 ```
 
-### Vector Search Examples
+### Retrieval Examples
 
 ```bash
-# Pure vector search
 python embedding_retrieval.py
-
-# Hybrid search (vector + keyword)
 python hybrid_retrieval.py
-
-# Product search with intelligent parsing
-python product_search_hybrid.py
+python hybrid_retrieval_simple.py
 ```
 
-### Advanced Examples
+### Product Example
 
 ```bash
-# Reranking with cross-encoder
-python reranking_example.py
-
-# Model validation
-python model_validation_example.py
-
-# Complete product search scenarios
-python product_search_from_db2_table.py
+python product_search_hybrid.py
 ```
 
 ### Example Requirements
 
 All examples require:
-1. ✅ Valid `.env` configuration
-2. ✅ DB2 connection available
+
+1. ✅ Valid [`.env`](./.env) configuration
+2. ✅ Reachable DB2 connection
 3. ✅ Virtual environment activated
 
 ---
@@ -368,10 +294,6 @@ hatch run test:types
 
 # 7. Run unit tests
 hatch run test:unit
-
-# 8. Commit changes
-git add .
-git commit -m "Your descriptive commit message"
 ```
 
 ### Code Quality Commands
@@ -404,64 +326,45 @@ hatch run test:all
 
 # Specific test file
 pytest tests/test_filters.py -v
-
-# With coverage report
-hatch run test:cov
-
-# Watch mode (re-run on file changes)
-pytest-watch tests/
-```
-
-### Git Workflow
-
-```bash
-# Create feature branch
-git checkout -b feature/your-feature-name
-
-# Make changes and commit
-git add .
-git commit -m "feat: add new feature"
-
-# Push to remote
-git push origin feature/your-feature-name
-
-# Create pull request on GitHub
+pytest tests/test_keyword_retriever.py -v
 ```
 
 ---
 
 ## Troubleshooting
 
-### Issue 1: ibm-db Installation Fails
+### Issue 1: `ibm-db` Installation Fails
 
 **Symptoms:**
-```
+```bash
 error: command 'gcc' failed with exit status 1
 ```
 
 **Solution:**
 Install system dependencies:
 
+**Ubuntu/Debian:**
 ```bash
-# Ubuntu/Debian
 sudo apt-get install gcc python3-dev libxml2-dev libxslt1-dev
-
-# macOS
-xcode-select --install
-
-# Windows
-# Install Visual Studio Build Tools
 ```
 
-### Issue 2: Python 3.11 Not Found
+**macOS:**
+```bash
+xcode-select --install
+```
+
+**Windows:**
+Install Visual Studio Build Tools.
+
+### Issue 2: Python Not Found
 
 **Symptoms:**
-```
+```bash
 python3.11: command not found
 ```
 
 **Solution:**
-Install Python 3.11:
+Install Python 3.10+ and verify:
 
 ```bash
 # Ubuntu/Debian
@@ -537,7 +440,7 @@ Connection refused: DB2 server not accessible
 - Run unit tests only: `hatch run test:unit`
 - Or configure DB2 connection in `.env`
 
-### Issue 7: Permission Denied on setup_dev_environment.sh
+### Issue 7: Permission Denied on [`setup_dev_environment.sh`](./setup_dev_environment.sh)
 
 **Symptoms:**
 ```
@@ -554,70 +457,16 @@ chmod +x setup_dev_environment.sh
 
 ## Additional Resources
 
-### Documentation
-
-- **Architecture Guide**: [`ARCHITECTURE.md`](./ARCHITECTURE.md)
-- **Product Search Architecture**: [`examples/PRODUCT_SEARCH_ARCHITECTURE.md`](./examples/PRODUCT_SEARCH_ARCHITECTURE.md)
-- **Contributing Guidelines**: [`../../CONTRIBUTING.md`](../../CONTRIBUTING.md)
-- **Haystack Documentation**: https://docs.haystack.deepset.ai/
-
-### Example Files
-
-| File | Description |
-|------|-------------|
-| `basic_usage.py` | Basic document store operations |
-| `embedding_retrieval.py` | Vector search examples |
-| `hybrid_retrieval.py` | Hybrid search (vector + keyword) |
-| `product_search_hybrid.py` | Product search with intelligent parsing |
-| `reranking_example.py` | Cross-encoder reranking |
-| `model_validation_example.py` | Embedding model validation |
-
-### Useful Commands Reference
-
-```bash
-# Environment
-source venv/bin/activate              # Activate venv
-deactivate                            # Deactivate venv
-
-# Testing
-hatch run test:unit                   # Unit tests
-hatch run test:all                    # All tests
-hatch run test:cov                    # With coverage
-pytest tests/ -v                      # Verbose output
-pytest tests/ -k "test_name"          # Specific test
-
-# Code Quality
-hatch run fmt                         # Format code
-hatch run test:types                  # Type check
-python -m ruff check src/             # Lint
-python -m ruff check --fix src/       # Lint + fix
-
-# Examples
-cd examples && python basic_usage.py  # Run example
-
-# Git
-git status                            # Check status
-git add .                             # Stage changes
-git commit -m "message"               # Commit
-git push origin branch-name           # Push
-```
-
----
-
-## Getting Help
-
-If you encounter issues not covered in this guide:
-
-1. **Check existing issues**: https://github.com/deepset-ai/haystack-core-integrations/issues
-2. **Create new issue**: Provide error messages, environment details, and steps to reproduce
-3. **Ask in discussions**: https://github.com/deepset-ai/haystack-core-integrations/discussions
-4. **Haystack Discord**: https://discord.gg/haystack
+- **[README](./README.md)** - Package overview
+- **[Examples](./examples/)** - Available example scripts
+- **[Contributing Guidelines](../../CONTRIBUTING.md)** - Repository-wide contribution guide
+- **Haystack Documentation** - https://docs.haystack.deepset.ai/
 
 ---
 
 ## Summary
 
-You now have a complete development environment for the DB2 Haystack integration!
+You now have a development environment for the DB2 Haystack integration.
 
 **Quick Reference:**
 ```bash
@@ -634,6 +483,3 @@ git commit -m "Your changes"
 # Run examples
 cd examples
 python product_search_hybrid.py
-```
-
-Happy coding! 🚀

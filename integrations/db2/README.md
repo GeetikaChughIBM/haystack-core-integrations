@@ -31,9 +31,9 @@ pip install db2-haystack
 ## Documentation
 
 - **[Setup Guide](./SETUP.md)** - Complete development environment setup
-- **[Architecture Guide](./ARCHITECTURE.md)** - System architecture and design decisions
-- **[Product Search Architecture](./examples/PRODUCT_SEARCH_ARCHITECTURE.md)** - Detailed example architecture
 - **[Examples](./examples/)** - Code examples and use cases
+- **[Demo Notes](./examples/BULK_INSERT_BENCHMARK.md)** - Bulk insert benchmark notes and usage
+- **[Test Coverage Analysis](./TEST_COVERAGE_ANALYSIS.md)** - Current testing status and gaps
 
 ## Contributing
 
