@@ -1,5 +1,33 @@
 # Changelog
 
+## [integrations/amazon_bedrock-v6.12.0] - 2026-06-12
+
+### 🚀 Features
+
+- Support str in addition to Secret for aws_region_name (#3423)
+
+
+## [integrations/amazon_bedrock-v6.11.0] - 2026-06-05
+
+### 🚀 Features
+
+- Amazon Bedrock - accept str as ChatGenerator input; deprecate generator; migrate generator example to chat generator (#3398)
+
+
+## [integrations/amazon_bedrock-v6.10.2] - 2026-05-19
+
+### 🐛 Bug Fixes
+
+- Type error during streaming of AmazonBedrockChatGenerator (#3332)
+
+
+## [integrations/amazon_bedrock-v6.10.1] - 2026-05-19
+
+### 🐛 Bug Fixes
+
+- S3Downloader - improve concurrent behavior (#3327)
+
+
 ## [integrations/amazon_bedrock-v6.10.0] - 2026-05-12
 
 ### 🚀 Features

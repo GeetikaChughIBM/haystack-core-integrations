@@ -308,6 +308,29 @@ class TestS3Downloader:
         assert out["documents"] == []
         mock_s3_storage.download.assert_not_called()
 
+    def test_download_writes_to_temp_path_then_renames(self, tmp_path, mock_boto3_session):
+        d = S3Downloader(file_root_path=str(tmp_path))
+
+        final_path = tmp_path / "test.pdf"
+        captured_paths = []
+
+        def fake_download(key, local_file_path: Path):
+            captured_paths.append(Path(local_file_path))
+            assert not final_path.exists(), "final path must not exist while download is in progress"
+            Path(local_file_path).write_bytes(b"complete content")
+
+        mock_storage = MagicMock(spec=S3Storage)
+        mock_storage.download.side_effect = fake_download
+        d._storage = mock_storage
+
+        d.run(documents=[Document(meta={"file_name": "test.pdf"})])
+
+        assert len(captured_paths) == 1
+        assert captured_paths[0] != final_path
+        assert captured_paths[0].name.startswith("test.pdf.tmp-")
+        assert final_path.exists()
+        assert final_path.read_bytes() == b"complete content"
+
     def test_cleanup_cache_evicts_old_files(self, tmp_path, mock_s3_storage, mock_boto3_session):
         d = S3Downloader(file_root_path=str(tmp_path), max_cache_size=1)
         d._storage = mock_s3_storage
@@ -319,6 +342,24 @@ class TestS3Downloader:
         d.run(documents=[Document(meta={"file_name": "fresh.txt"})])
 
         assert not stale.exists()
+
+    def test_from_dict_aws_region_name(self, mock_boto3_session, tmp_path):
+        """
+        Test that aws_region_name as str value is correctly parsed
+        """
+        d = S3Downloader.from_dict(
+            {
+                "type": TYPE,
+                "init_parameters": {
+                    "aws_region_name": "my-fake-region",
+                    "file_root_path": str(tmp_path),
+                },
+            }
+        )
+        assert d.aws_region_name == "my-fake-region"
+
+        serialized = d.to_dict()
+        assert serialized["init_parameters"]["aws_region_name"] == "my-fake-region"
 
     def test_from_dict_with_serialized_callable(self, mock_boto3_session, tmp_path):
         data = {

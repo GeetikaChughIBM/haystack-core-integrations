@@ -6,6 +6,7 @@ from botocore.config import Config
 from botocore.eventstream import EventStream
 from botocore.exceptions import ClientError
 from haystack import component, default_from_dict, default_to_dict, logging
+from haystack.components.generators.utils import _normalize_messages
 from haystack.dataclasses import (
     ChatMessage,
     ComponentInfo,
@@ -54,16 +55,24 @@ class AmazonBedrockChatGenerator:
     **Usage example**
 
     ```python
-    from haystack_integrations.components.generators.amazon_bedrock import AmazonBedrockChatGenerator
+    from haystack_integrations.components.generators.amazon_bedrock import (
+        AmazonBedrockChatGenerator,
+    )
     from haystack.dataclasses import ChatMessage
     from haystack.components.generators.utils import print_streaming_chunk
 
-    messages = [ChatMessage.from_system("\\nYou are a helpful, respectful and honest assistant, answer in German only"),
-                ChatMessage.from_user("What's Natural Language Processing?")]
+    messages = [
+        ChatMessage.from_system(
+            "\\nYou are a helpful, respectful and honest assistant, answer in German only"
+        ),
+        ChatMessage.from_user("What's Natural Language Processing?"),
+    ]
 
 
-    client = AmazonBedrockChatGenerator(model="global.anthropic.claude-sonnet-4-6",
-                                        streaming_callback=print_streaming_chunk)
+    client = AmazonBedrockChatGenerator(
+        model="global.anthropic.claude-sonnet-4-6",
+        streaming_callback=print_streaming_chunk,
+    )
     client.run(messages, generation_kwargs={"max_tokens": 512})
     ```
 
@@ -151,7 +160,9 @@ class AmazonBedrockChatGenerator:
     To cache messages, you can use the `cachePoint` key in `ChatMessage.meta` attribute.
 
     ```python
-    ChatMessage.from_user("Long message...", meta={"cachePoint": {"type": "default"}})
+    ChatMessage.from_user(
+        "Long message...", meta={"cachePoint": {"type": "default"}}
+    )
     ```
 
     For more information, see the [Amazon Bedrock documentation](https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html).
@@ -178,7 +189,7 @@ class AmazonBedrockChatGenerator:
             ["AWS_SECRET_ACCESS_KEY"], strict=False
         ),
         aws_session_token: Secret | None = Secret.from_env_var(["AWS_SESSION_TOKEN"], strict=False),  # noqa: B008
-        aws_region_name: Secret | None = Secret.from_env_var(["AWS_DEFAULT_REGION"], strict=False),  # noqa: B008
+        aws_region_name: Secret | str | None = Secret.from_env_var(["AWS_DEFAULT_REGION"], strict=False),  # noqa: B008
         aws_profile_name: Secret | None = Secret.from_env_var(["AWS_PROFILE"], strict=False),  # noqa: B008
         generation_kwargs: dict[str, Any] | None = None,
         streaming_callback: StreamingCallbackT | None = None,
@@ -218,12 +229,15 @@ class AmazonBedrockChatGenerator:
 
                 Example::
 
-                    generation_kwargs={
+                    generation_kwargs = {
                         "response_format": {
                             "name": "person",
                             "schema": {
                                 "type": "object",
-                                "properties": {"name": {"type": "string"}, "age": {"type": "integer"}},
+                                "properties": {
+                                    "name": {"type": "string"},
+                                    "age": {"type": "integer"},
+                                },
                                 "required": ["name", "age"],
                                 "additionalProperties": False,
                             },
@@ -287,8 +301,8 @@ class AmazonBedrockChatGenerator:
             _validate_and_format_cache_point(tools_cachepoint_config) if tools_cachepoint_config else None
         )
 
-        def resolve_secret(secret: Secret | None) -> str | None:
-            return secret.resolve_value() if secret else None
+        def resolve_secret(secret: Secret | str | None) -> str | None:
+            return secret.resolve_value() if isinstance(secret, Secret) else secret
 
         config = Config(
             user_agent_extra="x-client-framework:haystack",
@@ -400,7 +414,6 @@ class AmazonBedrockChatGenerator:
         tools: ToolsType | None = None,
         requires_async: bool = False,
     ) -> tuple[dict[str, Any], StreamingCallbackT | None]:
-
         generation_kwargs = generation_kwargs or {}
 
         # Merge generation_kwargs with defaults
@@ -520,7 +533,7 @@ class AmazonBedrockChatGenerator:
     @component.output_types(replies=list[ChatMessage])
     def run(
         self,
-        messages: list[ChatMessage],
+        messages: list[ChatMessage] | str,
         streaming_callback: StreamingCallbackT | None = None,
         generation_kwargs: dict[str, Any] | None = None,
         tools: ToolsType | None = None,
@@ -531,6 +544,7 @@ class AmazonBedrockChatGenerator:
         Supports both standard and streaming responses depending on whether a streaming callback is provided.
 
         :param messages: A list of `ChatMessage` objects forming the chat history.
+            If a string is provided, it is converted to a list containing a ChatMessage with user role.
         :param streaming_callback: Optional callback for handling streaming outputs.
         :param generation_kwargs: Optional dictionary of generation parameters. Some common parameters are:
             - `maxTokens`: Maximum number of tokens to generate.
@@ -546,6 +560,7 @@ class AmazonBedrockChatGenerator:
         :raises AmazonBedrockInferenceError:
             If the Bedrock inference API call fails.
         """
+        messages = _normalize_messages(messages)
         component_info = ComponentInfo.from_component(self)
 
         params, callback = self._prepare_request_params(
@@ -582,7 +597,7 @@ class AmazonBedrockChatGenerator:
     @component.output_types(replies=list[ChatMessage])
     async def run_async(
         self,
-        messages: list[ChatMessage],
+        messages: list[ChatMessage] | str,
         streaming_callback: StreamingCallbackT | None = None,
         generation_kwargs: dict[str, Any] | None = None,
         tools: ToolsType | None = None,
@@ -593,6 +608,7 @@ class AmazonBedrockChatGenerator:
         Designed for use cases where non-blocking or concurrent execution is desired.
 
         :param messages: A list of `ChatMessage` objects forming the chat history.
+            If a string is provided, it is converted to a list containing a ChatMessage with user role.
         :param streaming_callback: Optional async-compatible callback for handling streaming outputs.
         :param generation_kwargs: Optional dictionary of generation parameters. Some common parameters are:
             - `maxTokens`: Maximum number of tokens to generate.
@@ -608,6 +624,7 @@ class AmazonBedrockChatGenerator:
         :raises AmazonBedrockInferenceError:
             If the Bedrock inference API call fails.
         """
+        messages = _normalize_messages(messages)
         component_info = ComponentInfo.from_component(self)
 
         params, callback = self._prepare_request_params(
@@ -631,7 +648,11 @@ class AmazonBedrockChatGenerator:
                     self.aws_secret_access_key.resolve_value() if self.aws_secret_access_key else None
                 ),
                 aws_session_token=(self.aws_session_token.resolve_value() if self.aws_session_token else None),
-                region_name=(self.aws_region_name.resolve_value() if self.aws_region_name else None),
+                region_name=(
+                    self.aws_region_name.resolve_value()
+                    if isinstance(self.aws_region_name, Secret)
+                    else self.aws_region_name
+                ),
                 config=config,
             ) as async_client:
                 if callback:
