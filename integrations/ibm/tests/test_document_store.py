@@ -71,6 +71,49 @@ def sample_documents():
 
 
 @pytest.mark.integration
+def test_ssl_connection():
+    """
+    Test that SSL connection works with DB2.
+    
+    To run this test:
+    1. Remove the @pytest.mark.skip decorator
+    2. Update the connection details below with your SSL-enabled DB2 instance
+    3. Ensure your DB2 server has SSL enabled on the specified port
+    4. Provide a valid SSL certificate path
+    """
+    config = Db2ConnectionConfig(
+        database="TESTDB",
+        hostname="host",
+        port=50001,  # SSL port
+        username="your_username",
+        password="your_password",
+        protocol="TCPIP",
+        use_ssl=True,
+        ssl_certificate="/path/to/your/certificate.pem",
+    )
+    
+    store = Db2DocumentStore(
+        connection_config=config,
+        table_name="ssl_test",
+        embedding_dim=768,
+        distance_metric="COSINE",
+        recreate_table=True,
+    )
+    
+    # Verify SSL connection works by executing a query
+    assert store.count_documents() == 0
+    
+    # Cleanup
+    try:
+        conn = store._get_connection()
+        with conn.cursor() as cur:
+            cur.execute("DROP TABLE ssl_test")
+            conn.commit()
+    except Exception:
+        pass
+
+
+@pytest.mark.integration
 class TestDb2DocumentStoreBasicOperations:
     """Test basic CRUD operations."""
 
@@ -200,7 +243,7 @@ class TestDb2DocumentStoreDuplicatePolicies:
 
 @pytest.mark.integration
 class TestDb2DocumentStorePureSQLFiltering:
-    """Test pure SQL filtering approach (similar to PgVector)."""
+    """Test pure SQL filtering approach."""
 
     def test_filter_by_metadata_string(self, document_store, sample_documents):
         """Test filtering by metadata string field using pure SQL."""

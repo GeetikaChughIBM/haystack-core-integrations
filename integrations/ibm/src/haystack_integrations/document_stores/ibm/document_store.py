@@ -33,6 +33,8 @@ class Db2ConnectionConfig:
     :param password: Database password
     :param protocol: Connection protocol (default: "TCPIP")
     :param schema: Database schema (optional)
+    :param use_ssl: Enable SSL/TLS connection (default: False)
+    :param ssl_certificate: Path to SSL certificate file (optional, required if use_ssl is True)
     :param connection_options: Additional connection options as dict (optional)
     """
     
@@ -43,6 +45,8 @@ class Db2ConnectionConfig:
     password: str = ""
     protocol: str = "TCPIP"
     schema: str | None = None
+    use_ssl: bool = False
+    ssl_certificate: str | None = None
     connection_options: dict[str, Any] | None = None
 
 
@@ -110,7 +114,7 @@ class Db2DocumentStore:
     def _get_connection(self) -> ibm_db_dbi.Connection:
         """
         Get or create a persistent database connection.
-        Thread-safe lazy initialization.
+        Thread-safe lazy initialization with SSL support.
         
         :return: IBM DB2 connection object
         """
@@ -124,6 +128,12 @@ class Db2DocumentStore:
                         f"PORT={self.connection_config.port};"
                         f"PROTOCOL={self.connection_config.protocol}"
                     )
+                    
+                    # Add SSL configuration if enabled
+                    if self.connection_config.use_ssl:
+                        dsn += ";SECURITY=SSL"
+                        if self.connection_config.ssl_certificate:
+                            dsn += f";SSLServerCertificate={self.connection_config.ssl_certificate}"
                     
                     # Set connection options (autocommit OFF by default)
                     conn_options = {
