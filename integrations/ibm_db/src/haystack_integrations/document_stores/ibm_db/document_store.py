@@ -232,6 +232,35 @@ class Db2DocumentStore:
         """
         return await asyncio.to_thread(self.count_documents)
 
+    def count_documents_by_filter(self, filters: dict[str, Any] | None = None) -> int:
+        """
+        Count documents that match the provided filters.
+
+        :param filters: Filters to apply. See Haystack documentation for filter syntax.
+        :return: Number of documents matching the filters
+        """
+        if not filters:
+            return self.count_documents()
+
+        conn = self._get_connection()
+        where_clause, params = self._build_where_clause(filters)
+
+        with conn.cursor() as cur:
+            # where_clause already includes "WHERE"
+            query = f"SELECT COUNT(*) FROM {self.table_name} {where_clause}"
+            cur.execute(query, params)
+            result = cur.fetchone()
+            return result[0] if result else 0
+
+    async def count_documents_by_filter_async(self, filters: dict[str, Any] | None = None) -> int:
+        """
+        Count documents that match the provided filters asynchronously.
+
+        :param filters: Filters to apply. See Haystack documentation for filter syntax.
+        :return: Number of documents matching the filters
+        """
+        return await asyncio.to_thread(self.count_documents_by_filter, filters)
+
     def write_documents(
         self,
         documents: list[Document],
@@ -243,16 +272,26 @@ class Db2DocumentStore:
         :param documents: List of documents to write
         :param policy: Policy for handling duplicate documents
         :return: Number of documents written
+        :raises ValueError: If documents is not a list of Document objects
+        :raises DuplicateDocumentError: If a document with the same id already exists and policy is FAIL or NONE
         """
         if not documents:
             return 0
 
+        # Validate input
+        if not isinstance(documents, list):
+            msg = f"Expected a list of Document objects, got {type(documents)}"
+            raise ValueError(msg)
+
+        for doc in documents:
+            if not isinstance(doc, Document):
+                msg = f"Expected Document objects, got {type(doc)}"
+                raise ValueError(msg)
+
         conn = self._get_connection()
 
-        if policy == DuplicatePolicy.NONE:
+        if policy in (DuplicatePolicy.NONE, DuplicatePolicy.FAIL):
             return self._insert_documents(conn, documents)
-        elif policy == DuplicatePolicy.FAIL:
-            return self._insert_documents_fail(conn, documents)
         elif policy == DuplicatePolicy.SKIP:
             return self._skip_duplicate_documents(conn, documents)
         elif policy == DuplicatePolicy.OVERWRITE:
@@ -276,6 +315,7 @@ class Db2DocumentStore:
         return await asyncio.to_thread(self.write_documents, documents, policy)
 
     def _insert_documents(self, conn: ibm_db_dbi.Connection, documents: list[Document]) -> int:
+        """Insert documents and fail on duplicates via database integrity errors."""
         rows = [self._to_row(doc) for doc in documents]
         with conn.cursor() as cur:
             sql = (
@@ -283,20 +323,26 @@ class Db2DocumentStore:
                 f"VALUES (?, ?, SYSTOOLS.JSON2BSON(?), "
                 f"VECTOR(CAST(? AS CLOB(100000)), {self.embedding_dim}, FLOAT32))"
             )
-            cur.executemany(sql, rows)
-            conn.commit()
+            try:
+                cur.executemany(sql, rows)
+                conn.commit()
+            except Exception as e:
+                conn.rollback()
+                error_msg = str(e).lower()
+                # DB2 uses SQL0803N for unique constraint violations
+                duplicate_indicators = (
+                    "duplicate",
+                    "unique",
+                    "sql0803n",
+                    "primary key",
+                    "sqlcode=-803",
+                    "sqlstate=23505",
+                )
+                if any(indicator in error_msg for indicator in duplicate_indicators):
+                    msg = f"Document already exists. Use DuplicatePolicy.OVERWRITE or SKIP. Original error: {e}"
+                    raise DuplicateDocumentError(msg) from e
+                raise
         return len(documents)
-
-    def _insert_documents_fail(self, conn: ibm_db_dbi.Connection, documents: list[Document]) -> int:
-        try:
-            return self._insert_documents(conn, documents)
-        except Exception as e:
-            conn.rollback()
-            error_msg = str(e).lower()
-            if "duplicate" in error_msg or "unique" in error_msg:
-                msg = f"Duplicate document IDs found: {error_msg}"
-                raise DuplicateDocumentError(msg) from e
-            raise
 
     def _skip_duplicate_documents(self, conn: ibm_db_dbi.Connection, documents: list[Document]) -> int:
         rows = [self._to_row(doc) for doc in documents]
@@ -577,133 +623,6 @@ class Db2DocumentStore:
             filters=filters,
             top_k=top_k,
         )
-
-    def _keyword_retrieval(
-        self, query: str, *, filters: dict[str, Any] | None = None, top_k: int = 10
-    ) -> list[Document]:
-        """
-        Retrieve documents by keyword search using DB2's text search capabilities.
-
-        Note: This requires DB2 Text Search to be configured on the content column.
-        For basic installations, this may not be available.
-
-        :param query: Search query string
-        :param filters: Optional filters to apply
-        :param top_k: Number of documents to retrieve
-        :return: List of documents with scores
-        """
-        conn = self._get_connection()
-
-        with conn.cursor() as cur:
-            # DB2 Text Search uses CONTAINS predicate
-            # This is a simplified implementation - full text search setup may vary
-            sql = (
-                f"SELECT id, content, SYSTOOLS.BSON2JSON(meta) AS meta, embedding, "
-                f"SCORE() AS score "
-                f"FROM {self.table_name} "
-                f"WHERE CONTAINS(content, ?) = 1"
-            )
-            params: list[Any] = [query]
-
-            # Add filters if provided
-            if filters:
-                where_clause, filter_params = self._build_where_clause(filters)
-                # Replace WHERE with AND since we already have a WHERE clause
-                where_clause = where_clause.replace("WHERE", "AND", 1)
-                sql = f"{sql} {where_clause}"
-                params.extend(filter_params)
-
-            # Add ordering and limit
-            sql = f"{sql} ORDER BY score DESC FETCH FIRST ? ROWS ONLY"
-            params.append(top_k)
-
-            try:
-                cur.execute(sql, params)
-                rows = cur.fetchall()
-
-                # Convert rows to documents with scores
-                documents = []
-                for row in rows:
-                    doc_id, content, meta_json, embedding, score = row
-                    meta = json.loads(meta_json) if meta_json else {}
-                    embedding_list = list(embedding) if embedding else None
-
-                    doc = Document(
-                        id=doc_id,
-                        content=content,
-                        meta=meta,
-                        embedding=embedding_list,
-                        score=float(score) if score is not None else 0.0,
-                    )
-                    documents.append(doc)
-
-                return documents
-            except Exception as e:
-                # If text search is not configured, fall back to simple LIKE search
-                logger.warning(
-                    "Text search failed, falling back to LIKE search. "
-                    "Consider configuring DB2 Text Search for better performance. Error: %s",
-                    e,
-                )
-                return self._keyword_retrieval_fallback(query, filters=filters, top_k=top_k)
-
-    def _keyword_retrieval_fallback(
-        self, query: str, *, filters: dict[str, Any] | None = None, top_k: int = 10
-    ) -> list[Document]:
-        """
-        Fallback keyword retrieval using simple LIKE search.
-
-        :param query: Search query string
-        :param filters: Optional filters to apply
-        :param top_k: Number of documents to retrieve
-        :return: List of documents
-        """
-        conn = self._get_connection()
-
-        with conn.cursor() as cur:
-            sql = (
-                f"SELECT id, content, SYSTOOLS.BSON2JSON(meta) AS meta, embedding "
-                f"FROM {self.table_name} "
-                f"WHERE LOWER(content) LIKE LOWER(?)"
-            )
-            params: list[Any] = [f"%{query}%"]
-
-            # Add filters if provided
-            if filters:
-                where_clause, filter_params = self._build_where_clause(filters)
-                where_clause = where_clause.replace("WHERE", "AND", 1)
-                sql = f"{sql} {where_clause}"
-                params.extend(filter_params)
-
-            # Add limit
-            sql = f"{sql} FETCH FIRST ? ROWS ONLY"
-            params.append(top_k)
-
-            cur.execute(sql, params)
-            rows = cur.fetchall()
-
-            # Convert rows to documents (no scores in fallback)
-            documents = []
-            for row in rows:
-                doc_id, content, meta_json, embedding = row
-                meta = json.loads(meta_json) if meta_json else {}
-                embedding_list = list(embedding) if embedding else None
-
-                doc = Document(
-                    id=doc_id,
-                    content=content,
-                    meta=meta,
-                    embedding=embedding_list,
-                )
-                documents.append(doc)
-
-            return documents
-
-    async def _keyword_retrieval_async(
-        self, query: str, *, filters: dict[str, Any] | None = None, top_k: int = 10
-    ) -> list[Document]:
-        """Async variant of _keyword_retrieval."""
-        return await asyncio.to_thread(self._keyword_retrieval, query, filters=filters, top_k=top_k)
 
 
 __all__ = ["Db2ConnectionConfig", "Db2DocumentStore"]
