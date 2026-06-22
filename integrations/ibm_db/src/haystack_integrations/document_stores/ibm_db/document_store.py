@@ -205,20 +205,11 @@ class Db2DocumentStore:
                     # If it still fails, raise the error
                     raise
 
+
     def _to_row(self, doc: Document) -> tuple:
-        """
-        Convert a Haystack Document to a database row tuple.
-
-        :param doc: Haystack Document object
-        :return: Tuple of (id, content, meta_json, embedding_str)
-        """
-        # Serialize metadata to JSON
+        """Convert a Document to (id, content, meta_json, embedding_str)."""
         meta_json = json.dumps(doc.meta) if doc.meta else "{}"
-
-        # Convert embedding to string representation for VECTOR() function
-        # LangChain uses f"{embedding}" which creates a string like "[0.1, 0.2, ...]"
         embedding_str = f"{doc.embedding}" if doc.embedding else None
-
         return (doc.id, doc.content, meta_json, embedding_str)
 
     def count_documents(self) -> int:
@@ -286,18 +277,8 @@ class Db2DocumentStore:
         return await asyncio.to_thread(self.write_documents, documents, policy)
 
     def _insert_documents(self, conn: ibm_db_dbi.Connection, documents: list[Document]) -> int:
-        """
-        Insert documents without duplicate checking.
-
-        :param conn: Database connection
-        :param documents: List of documents to insert
-        :return: Number of documents inserted
-        """
         rows = [self._to_row(doc) for doc in documents]
-
         with conn.cursor() as cur:
-            # Use executemany for batch insert
-            # Convert string embedding to VECTOR using CAST to CLOB first
             sql = (
                 f"INSERT INTO {self.table_name} (id, content, meta, embedding) "
                 f"VALUES (?, ?, SYSTOOLS.JSON2BSON(?), "
@@ -305,17 +286,9 @@ class Db2DocumentStore:
             )
             cur.executemany(sql, rows)
             conn.commit()
-            return len(documents)
+        return len(documents)
 
     def _insert_documents_fail(self, conn: ibm_db_dbi.Connection, documents: list[Document]) -> int:
-        """
-        Insert documents and fail on duplicates.
-
-        :param conn: Database connection
-        :param documents: List of documents to insert
-        :return: Number of documents inserted
-        :raises DuplicateDocumentError: If duplicate document IDs are found
-        """
         try:
             return self._insert_documents(conn, documents)
         except Exception as e:
@@ -327,97 +300,57 @@ class Db2DocumentStore:
             raise
 
     def _skip_duplicate_documents(self, conn: ibm_db_dbi.Connection, documents: list[Document]) -> int:
-        """
-        Insert documents, skipping duplicates.
-
-        :param conn: Database connection
-        :param documents: List of documents to insert
-        :return: Number of documents inserted
-        """
         rows = [self._to_row(doc) for doc in documents]
         inserted_count = 0
-
+        merge_sql = (
+            f"MERGE INTO {self.table_name} AS t "
+            f"USING (VALUES (?, ?, SYSTOOLS.JSON2BSON(?), "
+            f"VECTOR(CAST(? AS CLOB(100000)), {self.embedding_dim}, FLOAT32))) "
+            f"AS s(id, content, meta, embedding) "
+            "ON t.id = s.id "
+            "WHEN NOT MATCHED THEN "
+            "INSERT (id, content, meta, embedding) "
+            "VALUES (s.id, s.content, s.meta, s.embedding)"
+        )
         with conn.cursor() as cur:
-            # Use MERGE with WHEN NOT MATCHED to skip duplicates
-            merge_sql = (
-                f"MERGE INTO {self.table_name} AS t "
-                f"USING (VALUES (?, ?, SYSTOOLS.JSON2BSON(?), "
-                f"VECTOR(CAST(? AS CLOB(100000)), {self.embedding_dim}, FLOAT32))) "
-                f"AS s(id, content, meta, embedding) "
-                "ON t.id = s.id "
-                "WHEN NOT MATCHED THEN "
-                "INSERT (id, content, meta, embedding) "
-                "VALUES (s.id, s.content, s.meta, s.embedding)"
-            )
-
             for row in rows:
                 cur.execute(merge_sql, row)
-                # Check if row was inserted (rowcount > 0)
                 if cur.rowcount > 0:
                     inserted_count += 1
-
             conn.commit()
-
         return inserted_count
 
     def _upsert_documents(self, conn: ibm_db_dbi.Connection, documents: list[Document]) -> int:
-        """
-        Insert or update documents (upsert).
-
-        :param conn: Database connection
-        :param documents: List of documents to upsert
-        :return: Number of documents affected
-        """
         rows = [self._to_row(doc) for doc in documents]
-
+        merge_sql = (
+            f"MERGE INTO {self.table_name} AS t "
+            f"USING (VALUES (?, ?, SYSTOOLS.JSON2BSON(?), "
+            f"VECTOR(CAST(? AS CLOB(100000)), {self.embedding_dim}, FLOAT32))) "
+            f"AS s(id, content, meta, embedding) "
+            "ON t.id = s.id "
+            "WHEN MATCHED THEN "
+            "UPDATE SET t.content = s.content, t.meta = s.meta, t.embedding = s.embedding "
+            "WHEN NOT MATCHED THEN "
+            "INSERT (id, content, meta, embedding) "
+            "VALUES (s.id, s.content, s.meta, s.embedding)"
+        )
         with conn.cursor() as cur:
-            # Use MERGE with both MATCHED AND NOT MATCHED clauses
-            merge_sql = (
-                f"MERGE INTO {self.table_name} AS t "
-                f"USING (VALUES (?, ?, SYSTOOLS.JSON2BSON(?), "
-                f"VECTOR(CAST(? AS CLOB(100000)), {self.embedding_dim}, FLOAT32))) "
-                f"AS s(id, content, meta, embedding) "
-                "ON t.id = s.id "
-                "WHEN MATCHED THEN "
-                "UPDATE SET t.content = s.content, t.meta = s.meta, t.embedding = s.embedding "
-                "WHEN NOT MATCHED THEN "
-                "INSERT (id, content, meta, embedding) "
-                "VALUES (s.id, s.content, s.meta, s.embedding)"
-            )
-
             for row in rows:
                 cur.execute(merge_sql, row)
-
             conn.commit()
-
         return len(documents)
 
     def filter_documents(self, filters: dict[str, Any] | None = None) -> list[Document]:
-        """
-        Filter documents based on metadata using pure SQL approach.
-
-        All filtering is now performed in the database using SQL WHERE clauses,
-        similar to PgVector's implementation. This is more efficient and scalable.
-
-        :param filters: Filter dictionary (optional)
-        :return: List of matching documents
-        """
         conn = self._get_connection()
-
+        sql = f"SELECT id, content, SYSTOOLS.BSON2JSON(meta) AS meta, embedding FROM {self.table_name}"
+        params: list[Any] = []
+        if filters:
+            where_clause, params = self._build_where_clause(filters)
+            sql = f"{sql} {where_clause}"
         with conn.cursor() as cur:
-            # Build SELECT query with WHERE clause
-            sql = f"SELECT id, content, SYSTOOLS.BSON2JSON(meta) AS meta, embedding FROM {self.table_name}"
-            params: list[Any] = []
-
-            if filters:
-                where_clause, params = self._build_where_clause(filters)
-                sql = f"{sql} {where_clause}"
-
             cur.execute(sql, params)
             rows = cur.fetchall()
-            documents = [_row_to_document(row) for row in rows]
-
-            return documents
+        return [_row_to_document(row) for row in rows]
 
     async def filter_documents_async(self, filters: dict[str, Any] | None = None) -> list[Document]:
         """
@@ -583,8 +516,189 @@ class Db2DocumentStore:
 
         # Pass connection_config separately and let default_from_dict handle other params
         return cls(connection_config=connection_config, **init_params)
+    def _embedding_retrieval(
+        self,
+        query_embedding: list[float],
+        *,
+        filters: dict[str, Any] | None = None,
+        top_k: int = 10,
+    ) -> list[Document]:
+        conn = self._get_connection()
+        embedding_str = f"{query_embedding}"
+        where_clause, filter_params = self._build_where_clause(filters) if filters else ("", [])
+        
+        sql = (
+            f"SELECT id, content, SYSTOOLS.BSON2JSON(meta) AS meta, embedding, "
+            f"VECTOR_DISTANCE(embedding, VECTOR(CAST(? AS CLOB(100000)), {self.embedding_dim}, FLOAT32), "
+            f"{self.distance_metric}) AS score "
+            f"FROM {self.table_name} "
+            f"{where_clause} "
+            f"ORDER BY score ASC FETCH FIRST ? ROWS ONLY"
+        )
+        params: list[Any] = [embedding_str] + filter_params + [top_k]
+
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+            rows = cur.fetchall()
+
+        documents = []
+        for row in rows:
+            doc_id, content, meta_json, embedding, score = row
+            meta = json.loads(meta_json) if meta_json else {}
+            embedding_list = list(embedding) if embedding else None
+            doc = Document(
+                id=doc_id,
+                content=content,
+                meta=meta,
+                embedding=embedding_list,
+                score=float(score),
+            )
+            documents.append(doc)
+
+        return documents
+
+    async def _embedding_retrieval_async(
+        self,
+        query_embedding: list[float],
+        *,
+        filters: dict[str, Any] | None = None,
+        top_k: int = 10,
+    ) -> list[Document]:
+        """Async variant of _embedding_retrieval."""
+        return await asyncio.to_thread(
+            self._embedding_retrieval,
+            query_embedding,
+            filters=filters,
+            top_k=top_k,
+        )
+
+    def _keyword_retrieval(
+        self, query: str, *, filters: dict[str, Any] | None = None, top_k: int = 10
+    ) -> list[Document]:
+        """
+        Retrieve documents by keyword search using DB2's text search capabilities.
+
+        Note: This requires DB2 Text Search to be configured on the content column.
+        For basic installations, this may not be available.
+
+        :param query: Search query string
+        :param filters: Optional filters to apply
+        :param top_k: Number of documents to retrieve
+        :return: List of documents with scores
+        """
+        conn = self._get_connection()
+
+        with conn.cursor() as cur:
+            # DB2 Text Search uses CONTAINS predicate
+            # This is a simplified implementation - full text search setup may vary
+            sql = (
+                f"SELECT id, content, SYSTOOLS.BSON2JSON(meta) AS meta, embedding, "
+                f"SCORE() AS score "
+                f"FROM {self.table_name} "
+                f"WHERE CONTAINS(content, ?) = 1"
+            )
+            params: list[Any] = [query]
+
+            # Add filters if provided
+            if filters:
+                where_clause, filter_params = self._build_where_clause(filters)
+                # Replace WHERE with AND since we already have a WHERE clause
+                where_clause = where_clause.replace("WHERE", "AND", 1)
+                sql = f"{sql} {where_clause}"
+                params.extend(filter_params)
+
+            # Add ordering and limit
+            sql = f"{sql} ORDER BY score DESC FETCH FIRST ? ROWS ONLY"
+            params.append(top_k)
+
+            try:
+                cur.execute(sql, params)
+                rows = cur.fetchall()
+
+                # Convert rows to documents with scores
+                documents = []
+                for row in rows:
+                    doc_id, content, meta_json, embedding, score = row
+                    meta = json.loads(meta_json) if meta_json else {}
+                    embedding_list = list(embedding) if embedding else None
+
+                    doc = Document(
+                        id=doc_id,
+                        content=content,
+                        meta=meta,
+                        embedding=embedding_list,
+                        score=float(score) if score is not None else 0.0,
+                    )
+                    documents.append(doc)
+
+                return documents
+            except Exception as e:
+                # If text search is not configured, fall back to simple LIKE search
+                logger.warning(
+                    "Text search failed, falling back to LIKE search. "
+                    "Consider configuring DB2 Text Search for better performance. Error: %s",
+                    e,
+                )
+                return self._keyword_retrieval_fallback(query, filters=filters, top_k=top_k)
+
+    def _keyword_retrieval_fallback(
+        self, query: str, *, filters: dict[str, Any] | None = None, top_k: int = 10
+    ) -> list[Document]:
+        """
+        Fallback keyword retrieval using simple LIKE search.
+
+        :param query: Search query string
+        :param filters: Optional filters to apply
+        :param top_k: Number of documents to retrieve
+        :return: List of documents
+        """
+        conn = self._get_connection()
+
+        with conn.cursor() as cur:
+            sql = (
+                f"SELECT id, content, SYSTOOLS.BSON2JSON(meta) AS meta, embedding "
+                f"FROM {self.table_name} "
+                f"WHERE LOWER(content) LIKE LOWER(?)"
+            )
+            params: list[Any] = [f"%{query}%"]
+
+            # Add filters if provided
+            if filters:
+                where_clause, filter_params = self._build_where_clause(filters)
+                where_clause = where_clause.replace("WHERE", "AND", 1)
+                sql = f"{sql} {where_clause}"
+                params.extend(filter_params)
+
+            # Add limit
+            sql = f"{sql} FETCH FIRST ? ROWS ONLY"
+            params.append(top_k)
+
+            cur.execute(sql, params)
+            rows = cur.fetchall()
+
+            # Convert rows to documents (no scores in fallback)
+            documents = []
+            for row in rows:
+                doc_id, content, meta_json, embedding = row
+                meta = json.loads(meta_json) if meta_json else {}
+                embedding_list = list(embedding) if embedding else None
+
+                doc = Document(
+                    id=doc_id,
+                    content=content,
+                    meta=meta,
+                    embedding=embedding_list,
+                )
+                documents.append(doc)
+
+            return documents
+
+    async def _keyword_retrieval_async(
+        self, query: str, *, filters: dict[str, Any] | None = None, top_k: int = 10
+    ) -> list[Document]:
+        """Async variant of _keyword_retrieval."""
+        return await asyncio.to_thread(self._keyword_retrieval, query, filters=filters, top_k=top_k)
+
 
 
 __all__ = ["Db2ConnectionConfig", "Db2DocumentStore"]
-
-# Made with Bob

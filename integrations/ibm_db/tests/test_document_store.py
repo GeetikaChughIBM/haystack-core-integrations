@@ -741,7 +741,7 @@ class TestDb2DocumentStoreSerialization:
         conn_config = init_params["connection_config"]
         # DB2 may return database name in uppercase
         assert conn_config["database"].upper() == "TESTDB"
-        assert conn_config["hostname"] == "localhost"
+        assert conn_config["hostname"] == document_store.connection_config.hostname
         assert conn_config["port"] == 50000
 
     def test_from_dict(self, document_store):
