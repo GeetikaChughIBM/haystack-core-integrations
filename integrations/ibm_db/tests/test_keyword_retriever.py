@@ -23,15 +23,6 @@ DB2_CONFIG = Db2ConnectionConfig(
     protocol="TCPIP",
 )
 
-DB2_CONFIG = Db2ConnectionConfig(
-    database="testdb",
-    hostname="Geetika-5y420-x86.dev.fyre.ibm.com",
-    port=50000,
-    username="geetika",
-    password="Geet#246",
-    protocol="TCPIP",
-)
-
 # Use Python-version-specific table name to avoid conflicts
 TEST_TABLE_NAME = f"test_retriever_kw_{sys.version_info.major}_{sys.version_info.minor}"
 
