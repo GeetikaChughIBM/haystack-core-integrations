@@ -106,7 +106,7 @@ class TestDb2KeywordRetriever:
 
         # Search for "Python" - should match doc1 and doc3
         result = retriever.run(query="Python")
-        
+
         assert "documents" in result
         docs = result["documents"]
         assert len(docs) >= 2  # At least doc1 and doc3
@@ -125,7 +125,7 @@ class TestDb2KeywordRetriever:
 
         result = retriever.run(query="programming")
         docs = result["documents"]
-        
+
         # Should only return Python documents
         assert len(docs) >= 1
         assert all(doc.meta.get("language") == "python" for doc in docs)
@@ -144,7 +144,7 @@ class TestDb2KeywordRetriever:
         runtime_filters = {"operator": "==", "field": "meta.language", "value": "java"}
         result = retriever.run(query="development", filters=runtime_filters)
         docs = result["documents"]
-        
+
         # Should only return Java documents (runtime filter)
         if len(docs) > 0:
             assert all(doc.meta.get("language") == "java" for doc in docs)
@@ -163,7 +163,7 @@ class TestDb2KeywordRetriever:
         runtime_filters = {"operator": "==", "field": "meta.language", "value": "python"}
         result = retriever.run(query="programming", filters=runtime_filters)
         docs = result["documents"]
-        
+
         # Should return only Python programming documents (both filters applied)
         if len(docs) > 0:
             assert all(doc.meta.get("category") == "programming" for doc in docs)
@@ -176,14 +176,14 @@ class TestDb2KeywordRetriever:
 
         result = retriever.run(query="data", top_k=1)
         docs = result["documents"]
-        
+
         assert len(docs) <= 1
 
     def test_run_empty_store(self, document_store):
         """Test retrieval from empty store."""
         retriever = Db2KeywordRetriever(document_store=document_store, top_k=5)
         result = retriever.run(query="test")
-        
+
         assert result["documents"] == []
 
     def test_run_no_matches(self, document_store, sample_documents):
@@ -192,7 +192,7 @@ class TestDb2KeywordRetriever:
         retriever = Db2KeywordRetriever(document_store=document_store, top_k=5)
 
         result = retriever.run(query="nonexistentquery12345")
-        
+
         assert result["documents"] == []
 
     def test_to_dict(self, document_store):
@@ -203,7 +203,7 @@ class TestDb2KeywordRetriever:
             filters={"operator": "==", "field": "meta.x", "value": "y"},
         )
         d = retriever.to_dict()
-        
+
         assert d["init_parameters"]["top_k"] == 7
         assert d["init_parameters"]["filters"] == {"operator": "==", "field": "meta.x", "value": "y"}
         assert d["init_parameters"]["filter_policy"] == "replace"
@@ -217,7 +217,7 @@ class TestDb2KeywordRetriever:
             filters={"operator": "==", "field": "meta.x", "value": "y"},
         )
         d = retriever.to_dict()
-        
+
         restored = Db2KeywordRetriever.from_dict(d)
         assert restored.top_k == 7
         assert restored.filters == {"operator": "==", "field": "meta.x", "value": "y"}
@@ -232,10 +232,11 @@ class TestDb2KeywordRetriever:
         retriever = Db2KeywordRetriever(document_store=document_store, top_k=5)
 
         result = await retriever.run_async(query="Python")
-        
+
         assert "documents" in result
         docs = result["documents"]
         assert len(docs) >= 1
         assert all(isinstance(doc, Document) for doc in docs)
+
 
 # Made with Bob

@@ -115,4 +115,5 @@ class Db2KeywordRetriever:
             params["filter_policy"] = FilterPolicy.from_str(filter_policy)
         return default_from_dict(cls, data)
 
+
 # Made with Bob

@@ -205,7 +205,6 @@ class Db2DocumentStore:
                     # If it still fails, raise the error
                     raise
 
-
     def _to_row(self, doc: Document) -> tuple:
         """Convert a Document to (id, content, meta_json, embedding_str)."""
         meta_json = json.dumps(doc.meta) if doc.meta else "{}"
@@ -341,6 +340,12 @@ class Db2DocumentStore:
         return len(documents)
 
     def filter_documents(self, filters: dict[str, Any] | None = None) -> list[Document]:
+        """
+        Filter documents using SQL-based metadata and field conditions.
+
+        :param filters: Optional filter dictionary to constrain the returned documents.
+        :return: List of matching documents.
+        """
         conn = self._get_connection()
         sql = f"SELECT id, content, SYSTOOLS.BSON2JSON(meta) AS meta, embedding FROM {self.table_name}"
         params: list[Any] = []
@@ -516,6 +521,7 @@ class Db2DocumentStore:
 
         # Pass connection_config separately and let default_from_dict handle other params
         return cls(connection_config=connection_config, **init_params)
+
     def _embedding_retrieval(
         self,
         query_embedding: list[float],
@@ -526,7 +532,7 @@ class Db2DocumentStore:
         conn = self._get_connection()
         embedding_str = f"{query_embedding}"
         where_clause, filter_params = self._build_where_clause(filters) if filters else ("", [])
-        
+
         sql = (
             f"SELECT id, content, SYSTOOLS.BSON2JSON(meta) AS meta, embedding, "
             f"VECTOR_DISTANCE(embedding, VECTOR(CAST(? AS CLOB(100000)), {self.embedding_dim}, FLOAT32), "
@@ -535,7 +541,7 @@ class Db2DocumentStore:
             f"{where_clause} "
             f"ORDER BY score ASC FETCH FIRST ? ROWS ONLY"
         )
-        params: list[Any] = [embedding_str] + filter_params + [top_k]
+        params: list[Any] = [embedding_str, *filter_params, top_k]
 
         with conn.cursor() as cur:
             cur.execute(sql, params)
@@ -698,7 +704,6 @@ class Db2DocumentStore:
     ) -> list[Document]:
         """Async variant of _keyword_retrieval."""
         return await asyncio.to_thread(self._keyword_retrieval, query, filters=filters, top_k=top_k)
-
 
 
 __all__ = ["Db2ConnectionConfig", "Db2DocumentStore"]
