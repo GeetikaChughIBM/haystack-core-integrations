@@ -20,6 +20,17 @@ DB2_CONFIG = Db2ConnectionConfig(
 
 
 @pytest.fixture
+def connection_config():
+    """
+    Provide DB2 connection configuration for tests.
+
+    This fixture allows tests to access the connection config without
+    duplicating the configuration details.
+    """
+    return DB2_CONFIG
+
+
+@pytest.fixture
 def document_store(request):
     """
     Create a fresh document store for each test with unique table name.

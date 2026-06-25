@@ -103,7 +103,8 @@ results = retriever.run(query_embedding=query_embedding, filters=filters)
 ## Requirements
 
 - IBM DB2 database (version 11.5 or later recommended)
-- Python 3.8+
+- Python 3.10+
+- ibm-db >= 3.2.8
 
 ## Contributing
 
