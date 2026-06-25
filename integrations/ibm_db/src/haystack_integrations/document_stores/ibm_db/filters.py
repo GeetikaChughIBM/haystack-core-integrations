@@ -89,7 +89,7 @@ class FilterTranslator:
 
             field_expr = self._field_to_sql(field)
             placeholders = ", ".join("?" for _ in value)
-            params.extend(value)
+            params.extend(_normalize_value(v) for v in value)
 
             if op in ("in", "$in"):
                 return f"{field_expr} IN ({placeholders})"
@@ -113,11 +113,11 @@ class FilterTranslator:
 
         # Handle != operator to include NULL values (documents without the field)
         if sql_operator == "!=":
-            params.append(value)
+            params.append(_normalize_value(value))
             return f"({field_expr} IS NULL OR {field_expr} != ?)"
 
         # For all other operators, use parameterized queries
-        params.append(value)
+        params.append(_normalize_value(value))
 
         return f"{field_expr} {sql_operator} ?"
 
@@ -138,6 +138,19 @@ class FilterTranslator:
             field_path = field
 
         return f"CAST(JSON_VALUE(SYSTOOLS.BSON2JSON(meta), '$.{field_path}') AS VARCHAR(1000))"
+
+
+def _normalize_value(value: Any) -> Any:
+    """
+    Normalize a Python value for binding against a JSON_VALUE comparison.
+
+    Booleans are stored in JSON as ``true``/``false`` and read back by ``JSON_VALUE`` as the
+    lowercase strings ``'true'``/``'false'``. ibm_db would otherwise bind a Python bool as the
+    integer ``1``/``0``, so the comparison would never match. Convert it explicitly.
+    """
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return value
 
 
 def _is_iso_date(value: Any) -> bool:

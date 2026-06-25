@@ -196,7 +196,19 @@ def test_complex_nested_conditions():
     assert " OR " in sql
     assert "IN (?, ?)" in sql
     assert len(params) == 5
-    assert params == ["tech", 4, True, "en", "de"]
+    assert params == ["tech", 4, "true", "en", "de"]
+
+
+def test_boolean_value_normalized_to_json_string():
+    """Booleans are bound as the lowercase JSON strings JSON_VALUE returns, not Python bools."""
+    _, true_params = _translate({"field": "meta.featured", "operator": "==", "value": True})
+    assert true_params == ["true"]
+
+    _, false_params = _translate({"field": "meta.featured", "operator": "!=", "value": False})
+    assert false_params == ["false"]
+
+    _, in_params = _translate({"field": "meta.flags", "operator": "in", "value": [True, False]})
+    assert in_params == ["true", "false"]
 
 
 # Made with Bob
