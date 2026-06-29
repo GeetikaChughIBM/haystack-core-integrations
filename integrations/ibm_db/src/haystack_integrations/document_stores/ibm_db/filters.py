@@ -137,7 +137,12 @@ class FilterTranslator:
         else:
             field_path = field
 
-        return f"CAST(JSON_VALUE(SYSTOOLS.BSON2JSON(meta), '$.{field_path}') AS VARCHAR(1000))"
+        # Use the `RETURNING VARCHAR(1000)` clause *inside* JSON_VALUE (as the rest of the
+        # document store does) rather than CAST(JSON_VALUE(...) AS VARCHAR). With the CAST form,
+        # JSON_VALUE uses its default return type, which errors on a JSON boolean and yields NULL,
+        # so boolean equality filters never match. RETURNING VARCHAR converts booleans to the
+        # text 'true'/'false', matching the values normalized in `_normalize_value`.
+        return f"JSON_VALUE(SYSTOOLS.BSON2JSON(meta), '$.{field_path}' RETURNING VARCHAR(1000))"
 
 
 def _normalize_value(value: Any) -> Any:

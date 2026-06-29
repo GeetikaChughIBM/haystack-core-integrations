@@ -17,7 +17,7 @@ def _translate(filters):
 def test_equality():
     """Test equality operator."""
     sql, params = _translate({"field": "meta.author", "operator": "==", "value": "Alice"})
-    assert "JSON_VALUE(SYSTOOLS.BSON2JSON(meta), '$.author')" in sql
+    assert "JSON_VALUE(SYSTOOLS.BSON2JSON(meta), '$.author' RETURNING VARCHAR(1000))" in sql
     assert "= ?" in sql
     assert params == ["Alice"]
 
