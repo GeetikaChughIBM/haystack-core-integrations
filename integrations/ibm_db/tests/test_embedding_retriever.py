@@ -5,7 +5,7 @@
 """Integration tests for Db2EmbeddingRetriever using live DB2 instance."""
 
 import sys
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from haystack.dataclasses import Document
@@ -14,6 +14,7 @@ from haystack.document_stores.types.filter_policy import apply_filter_policy
 
 from haystack_integrations.components.retrievers.ibm_db import Db2EmbeddingRetriever
 from haystack_integrations.document_stores.ibm_db import Db2DocumentStore
+
 
 @pytest.fixture
 def document_store(connection_config, request):
@@ -38,6 +39,7 @@ def document_store(connection_config, request):
     except Exception:
         pass
 
+
 @pytest.fixture
 def sample_documents():
     """Create sample documents with embeddings for testing."""
@@ -61,6 +63,7 @@ def sample_documents():
             embedding=[0.15, 0.25, 0.35, 0.45],
         ),
     ]
+
 
 class TestDb2EmbeddingRetrieverUnit:
     """Unit tests for Db2EmbeddingRetriever that don't require a database."""
@@ -155,15 +158,12 @@ class TestDb2EmbeddingRetrieverRun:
     async def test_run_async_delegates(self):
         expected = [Document(id="1", content="a")]
         mock_store = Mock(spec=Db2DocumentStore)
-
-        async def _fake_retrieval(query_embedding, *, filters=None, top_k=10):
-            return expected
-
-        mock_store._embedding_retrieval_async = _fake_retrieval
+        mock_store._embedding_retrieval_async = AsyncMock(return_value=expected)
 
         retriever = Db2EmbeddingRetriever(document_store=mock_store, top_k=3)
         result = await retriever.run_async(query_embedding=[0.1, 0.2, 0.3, 0.4])
         assert result == {"documents": expected}
+        mock_store._embedding_retrieval_async.assert_awaited_once()
 
     def test_from_dict_without_filter_policy(self):
         mock_store = Mock(spec=Db2DocumentStore)

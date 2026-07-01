@@ -465,9 +465,7 @@ class TestGetConnection:
         schema_cursor.execute.assert_called_once_with("SET SCHEMA MYSCHEMA")
 
     def test_schema_failure_raises_runtime_error(self):
-        config = Db2ConnectionConfig(
-            database="db", hostname="host", username="u", password="p", schema="BAD"
-        )
+        config = Db2ConnectionConfig(database="db", hostname="host", username="u", password="p", schema="BAD")
         with patch.object(Db2DocumentStore, "_ensure_table_exists", return_value=None):
             store = Db2DocumentStore(connection_config=config, table_name="t", embedding_dim=4)
 

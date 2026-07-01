@@ -4,17 +4,12 @@
 
 """Integration tests for IBM DB2 Document Store using Haystack mixin tests."""
 
-import asyncio
 import math
-import sys
-import tempfile
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
 import pytest
 from haystack.dataclasses import Document
 from haystack.document_stores.errors import DuplicateDocumentError
-from haystack.document_stores.types import DuplicatePolicy
 from haystack.testing.document_store import (
     CountDocumentsByFilterTest,
     CountDocumentsTest,
@@ -31,7 +26,7 @@ from haystack.testing.document_store import (
     WriteDocumentsTest,
 )
 
-from haystack_integrations.document_stores.ibm_db import Db2ConnectionConfig, Db2DocumentStore
+from haystack_integrations.document_stores.ibm_db import Db2DocumentStore
 from haystack_integrations.document_stores.ibm_db.document_store import _row_to_document
 
 try:
@@ -44,6 +39,7 @@ try:
     CRYPTOGRAPHY_AVAILABLE = True
 except ImportError:
     CRYPTOGRAPHY_AVAILABLE = False
+
 
 def _generate_self_signed_cert_pem() -> bytes:
     """
@@ -86,6 +82,7 @@ def _generate_self_signed_cert_pem() -> bytes:
 
     # Return certificate in PEM format
     return cert.public_bytes(serialization.Encoding.PEM)
+
 
 @pytest.mark.integration
 class TestDocumentStore(
@@ -237,6 +234,7 @@ class TestDocumentStore(
         assert len(retrieved) == 1
         assert retrieved[0].meta["nested"]["level1"]["level2"]["level3"] == "deep"
         assert retrieved[0].meta["list"] == [1, 2, 3, "four"]
+
 
 class TestDb2DocumentStoreUnit:
     """Unit tests for Db2DocumentStore that don't require a database."""
