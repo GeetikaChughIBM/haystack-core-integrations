@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import pytest
+from haystack.errors import FilterError
 
 from haystack_integrations.document_stores.ibm_db.filters import FilterTranslator, _is_iso_date
 
@@ -218,124 +219,128 @@ class TestFilterTranslatorErrorHandling:
     """Test error handling and edge cases for FilterTranslator."""
 
     def test_empty_conditions_list_and_operator(self):
-        """Test that AND operator with empty conditions raises ValueError."""
-        with pytest.raises(ValueError, match="requires a non-empty 'conditions' list"):
+        """Test that AND operator with empty conditions raises FilterError."""
+        with pytest.raises(FilterError, match="requires a non-empty 'conditions' list"):
             _translate({"operator": "AND", "conditions": []})
 
     def test_empty_conditions_list_or_operator(self):
-        """Test that OR operator with empty conditions raises ValueError."""
-        with pytest.raises(ValueError, match="requires a non-empty 'conditions' list"):
+        """Test that OR operator with empty conditions raises FilterError."""
+        with pytest.raises(FilterError, match="requires a non-empty 'conditions' list"):
             _translate({"operator": "OR", "conditions": []})
 
     def test_empty_conditions_list_not_operator(self):
-        """Test that NOT operator with empty conditions raises ValueError."""
-        with pytest.raises(ValueError, match="requires a non-empty 'conditions' list"):
+        """Test that NOT operator with empty conditions raises FilterError."""
+        with pytest.raises(FilterError, match="requires a non-empty 'conditions' list"):
             _translate({"operator": "NOT", "conditions": []})
 
     def test_empty_conditions_list_dollar_and_operator(self):
-        """Test that $and operator with empty conditions raises ValueError."""
-        with pytest.raises(ValueError, match="requires a non-empty 'conditions' list"):
+        """Test that $and operator with empty conditions raises FilterError."""
+        with pytest.raises(FilterError, match="requires a non-empty 'conditions' list"):
             _translate({"operator": "$and", "conditions": []})
 
     def test_empty_conditions_list_dollar_or_operator(self):
-        """Test that $or operator with empty conditions raises ValueError."""
-        with pytest.raises(ValueError, match="requires a non-empty 'conditions' list"):
+        """Test that $or operator with empty conditions raises FilterError."""
+        with pytest.raises(FilterError, match="requires a non-empty 'conditions' list"):
             _translate({"operator": "$or", "conditions": []})
 
     def test_empty_conditions_list_dollar_not_operator(self):
-        """Test that $not operator with empty conditions raises ValueError."""
-        with pytest.raises(ValueError, match="requires a non-empty 'conditions' list"):
+        """Test that $not operator with empty conditions raises FilterError."""
+        with pytest.raises(FilterError, match="requires a non-empty 'conditions' list"):
             _translate({"operator": "$not", "conditions": []})
 
     def test_not_operator_with_multiple_conditions(self):
-        """Test that NOT operator with multiple conditions raises ValueError."""
-        with pytest.raises(ValueError, match="NOT operator requires exactly one condition"):
-            _translate(
-                {
-                    "operator": "NOT",
-                    "conditions": [
-                        {"field": "meta.a", "operator": "==", "value": "x"},
-                        {"field": "meta.b", "operator": "==", "value": "y"},
-                    ],
-                }
-            )
+        """NOT with multiple conditions negates their AND (Haystack semantics)."""
+        sql, params = _translate(
+            {
+                "operator": "NOT",
+                "conditions": [
+                    {"field": "meta.a", "operator": "==", "value": "x"},
+                    {"field": "meta.b", "operator": "==", "value": "y"},
+                ],
+            }
+        )
+        assert sql.startswith("(NOT (")
+        assert " AND " in sql
+        assert params == ["x", "y"]
 
     def test_dollar_not_operator_with_multiple_conditions(self):
-        """Test that $not operator with multiple conditions raises ValueError."""
-        with pytest.raises(ValueError, match="NOT operator requires exactly one condition"):
-            _translate(
-                {
-                    "operator": "$not",
-                    "conditions": [
-                        {"field": "meta.a", "operator": "==", "value": "x"},
-                        {"field": "meta.b", "operator": "==", "value": "y"},
-                    ],
-                }
-            )
+        """$not with multiple conditions negates their AND (Haystack semantics)."""
+        sql, params = _translate(
+            {
+                "operator": "$not",
+                "conditions": [
+                    {"field": "meta.a", "operator": "==", "value": "x"},
+                    {"field": "meta.b", "operator": "==", "value": "y"},
+                ],
+            }
+        )
+        assert sql.startswith("(NOT (")
+        assert " AND " in sql
+        assert params == ["x", "y"]
 
     def test_missing_field_key(self):
-        """Test that missing 'field' key raises ValueError."""
-        with pytest.raises(ValueError, match="must include a 'field' key"):
+        """Test that missing 'field' key raises FilterError."""
+        with pytest.raises(FilterError, match="must include a 'field' key"):
             _translate({"operator": "==", "value": "test"})
 
     def test_empty_field_key(self):
-        """Test that empty 'field' key raises ValueError."""
-        with pytest.raises(ValueError, match="must include a 'field' key"):
+        """Test that empty 'field' key raises FilterError."""
+        with pytest.raises(FilterError, match="must include a 'field' key"):
             _translate({"field": "", "operator": "==", "value": "test"})
 
     def test_missing_operator_key(self):
-        """Test that missing 'operator' key raises ValueError."""
-        with pytest.raises(ValueError, match="must include an 'operator' key"):
+        """Test that missing 'operator' key raises FilterError."""
+        with pytest.raises(FilterError, match="must include an 'operator' key"):
             _translate({"field": "meta.author", "value": "Alice"})
 
     def test_empty_operator_key(self):
-        """Test that empty 'operator' key raises ValueError."""
-        with pytest.raises(ValueError, match="must include an 'operator' key"):
+        """Test that empty 'operator' key raises FilterError."""
+        with pytest.raises(FilterError, match="must include an 'operator' key"):
             _translate({"field": "meta.author", "operator": "", "value": "Alice"})
 
     def test_invalid_operator(self):
-        """Test that unsupported operator raises ValueError."""
-        with pytest.raises(ValueError, match="Unsupported filter operator"):
+        """Test that unsupported operator raises FilterError."""
+        with pytest.raises(FilterError, match="Unsupported filter operator"):
             _translate({"field": "meta.author", "operator": "INVALID", "value": "Alice"})
 
     def test_in_operator_with_empty_list(self):
-        """Test that IN operator with empty list raises ValueError."""
-        with pytest.raises(ValueError, match="requires a non-empty list value"):
+        """Test that IN operator with empty list raises FilterError."""
+        with pytest.raises(FilterError, match="requires a non-empty list value"):
             _translate({"field": "meta.lang", "operator": "in", "value": []})
 
     def test_in_operator_with_non_list(self):
-        """Test that IN operator with non-list value raises ValueError."""
-        with pytest.raises(ValueError, match="requires a non-empty list value"):
+        """Test that IN operator with non-list value raises FilterError."""
+        with pytest.raises(FilterError, match="requires a non-empty list value"):
             _translate({"field": "meta.lang", "operator": "in", "value": "en"})
 
     def test_not_in_operator_with_empty_list(self):
-        """Test that NOT IN operator with empty list raises ValueError."""
-        with pytest.raises(ValueError, match="requires a non-empty list value"):
+        """Test that NOT IN operator with empty list raises FilterError."""
+        with pytest.raises(FilterError, match="requires a non-empty list value"):
             _translate({"field": "meta.lang", "operator": "not in", "value": []})
 
     def test_not_in_operator_with_non_list(self):
-        """Test that NOT IN operator with non-list value raises ValueError."""
-        with pytest.raises(ValueError, match="requires a non-empty list value"):
+        """Test that NOT IN operator with non-list value raises FilterError."""
+        with pytest.raises(FilterError, match="requires a non-empty list value"):
             _translate({"field": "meta.lang", "operator": "not in", "value": "en"})
 
     def test_dollar_in_operator_with_empty_list(self):
-        """Test that $in operator with empty list raises ValueError."""
-        with pytest.raises(ValueError, match="requires a non-empty list value"):
+        """Test that $in operator with empty list raises FilterError."""
+        with pytest.raises(FilterError, match="requires a non-empty list value"):
             _translate({"field": "meta.lang", "operator": "$in", "value": []})
 
     def test_dollar_nin_operator_with_empty_list(self):
-        """Test that $nin operator with empty list raises ValueError."""
-        with pytest.raises(ValueError, match="requires a non-empty list value"):
+        """Test that $nin operator with empty list raises FilterError."""
+        with pytest.raises(FilterError, match="requires a non-empty list value"):
             _translate({"field": "meta.lang", "operator": "$nin", "value": []})
 
     def test_dollar_in_operator_with_non_list(self):
-        """Test that $in operator with non-list value raises ValueError."""
-        with pytest.raises(ValueError, match="requires a non-empty list value"):
+        """Test that $in operator with non-list value raises FilterError."""
+        with pytest.raises(FilterError, match="requires a non-empty list value"):
             _translate({"field": "meta.lang", "operator": "$in", "value": "en"})
 
     def test_dollar_nin_operator_with_non_list(self):
-        """Test that $nin operator with non-list value raises ValueError."""
-        with pytest.raises(ValueError, match="requires a non-empty list value"):
+        """Test that $nin operator with non-list value raises FilterError."""
+        with pytest.raises(FilterError, match="requires a non-empty list value"):
             _translate({"field": "meta.lang", "operator": "$nin", "value": "en"})
 
 
@@ -343,10 +348,10 @@ class TestFilterTranslatorEdgeCases:
     """Test edge cases for FilterTranslator."""
 
     def test_filter_with_none_value(self):
-        """Test filter with None value."""
+        """Test filter with None value maps to an IS NULL predicate (no bound param)."""
         sql, params = _translate({"field": "meta.optional", "operator": "==", "value": None})
-        assert "= ?" in sql
-        assert params == [None]
+        assert sql.endswith("IS NULL")
+        assert params == []
 
     def test_filter_with_empty_string_value(self):
         """Test filter with empty string value."""
@@ -364,7 +369,7 @@ class TestFilterTranslatorEdgeCases:
         """Test filter with False boolean value."""
         sql, params = _translate({"field": "meta.active", "operator": "==", "value": False})
         assert "= ?" in sql
-        assert params == [False]
+        assert params == ["false"]
 
     def test_filter_with_negative_number(self):
         """Test filter with negative number."""
@@ -382,7 +387,8 @@ class TestFilterTranslatorEdgeCases:
         """Test IN operator with mixed types in list."""
         sql, params = _translate({"field": "meta.values", "operator": "in", "value": [1, "two", 3.0, True]})
         assert "IN (?, ?, ?, ?)" in sql
-        assert params == [1, "two", 3.0, True]
+        # Booleans are normalized to JSON strings ('true'/'false') for DB2 compatibility
+        assert params == [1, "two", 3.0, "true"]
 
     def test_deeply_nested_logical_operators(self):
         """Test deeply nested logical operators."""

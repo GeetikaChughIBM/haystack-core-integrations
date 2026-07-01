@@ -5,6 +5,8 @@
 from datetime import datetime
 from typing import Any, ClassVar
 
+from haystack.errors import FilterError
+
 _RANGE_OPS = {">", ">=", "<", "<="}
 
 
@@ -54,13 +56,12 @@ class FilterTranslator:
             conditions = filters.get("conditions", [])
             if not conditions:
                 msg = f"Logical operator {op!r} requires a non-empty 'conditions' list."
-                raise ValueError(msg)
+                raise FilterError(msg)
 
             if op in ("NOT", "$not"):
-                if len(conditions) != 1:
-                    msg = "NOT operator requires exactly one condition."
-                    raise ValueError(msg)
-                return f"(NOT {self.translate(conditions[0], params)})"
+                # Haystack semantics: NOT negates the AND of its conditions.
+                translated = [self.translate(cond, params) for cond in conditions]
+                return f"(NOT ({' AND '.join(translated)}))"
 
             logical_op = "AND" if op in ("AND", "$and") else "OR"
             translated = [self.translate(cond, params) for cond in conditions]
@@ -69,23 +70,31 @@ class FilterTranslator:
         field = filters.get("field")
         if not field:
             msg = "Comparison filters must include a 'field' key."
-            raise ValueError(msg)
+            raise FilterError(msg)
 
         if not op:
             msg = "Each filter condition must include an 'operator' key."
-            raise ValueError(msg)
+            raise FilterError(msg)
 
         # Check if 'value' key exists (it's required for comparison operators)
         if "value" not in filters:
             msg = "Comparison filters must include a 'value' key."
-            raise ValueError(msg)
+            raise FilterError(msg)
 
         value = filters.get("value")
+
+        # None comparisons map to SQL NULL predicates. JSON_VALUE returns NULL for both
+        # missing keys and JSON null, so `== None` matches absent/null fields and
+        # `!= None` matches present, non-null fields.
+        if value is None and op in ("==", "$eq", "!=", "$ne"):
+            field_expr = self._field_to_sql(field)
+            null_op = "IS NOT NULL" if op in ("!=", "$ne") else "IS NULL"
+            return f"{field_expr} {null_op}"
 
         if op in ("in", "not in", "$in", "$nin"):
             if not isinstance(value, list) or not value:
                 msg = f"Operator {op!r} requires a non-empty list value."
-                raise ValueError(msg)
+                raise FilterError(msg)
 
             field_expr = self._field_to_sql(field)
             placeholders = ", ".join("?" for _ in value)
@@ -99,7 +108,7 @@ class FilterTranslator:
         sql_operator = self._OP_MAP.get(op)
         if sql_operator is None:
             msg = f"Unsupported filter operator: {op!r}"
-            raise ValueError(msg)
+            raise FilterError(msg)
 
         field_expr = self._field_to_sql(field)
 
@@ -109,7 +118,7 @@ class FilterTranslator:
             # Allow None (will be handled by parameterized query), numbers, and ISO date strings
             if value is not None and not isinstance(value, (int, float)) and not _is_iso_date(value):
                 msg = f"Operator {op!r} requires a numeric value or ISO date string, got {type(value).__name__}"
-                raise ValueError(msg)
+                raise FilterError(msg)
 
         # Handle != operator to include NULL values (documents without the field)
         if sql_operator == "!=":
@@ -118,6 +127,12 @@ class FilterTranslator:
 
         # For all other operators, use parameterized queries
         params.append(_normalize_value(value))
+
+        if sql_operator == "=":
+            # NULL-safe equality: a missing/null field is a definite non-match (not SQL
+            # UNKNOWN), so negations (NOT) include missing-field documents, matching
+            # Haystack's Python semantics where ``None == value`` is ``False``.
+            return f"({field_expr} IS NOT NULL AND {field_expr} = ?)"
 
         return f"{field_expr} {sql_operator} ?"
 
