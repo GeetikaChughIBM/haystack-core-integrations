@@ -2,32 +2,36 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+import os
 import sys
 
 import pytest
 
-from haystack_integrations.document_stores.ibm_db import Db2ConnectionConfig, Db2DocumentStore
+from haystack_integrations.document_stores.ibm_db import Db2DocumentStore
 
-# DB2 connection configuration for docker-compose DB2 instance
-DB2_CONFIG = Db2ConnectionConfig(
-    database="testdb",
-    hostname="localhost",
-    port=50000,
-    username="db2inst1",
-    password="Passw0rd123!",
-    protocol="TCPIP",
-)
+# Credentials are read from env vars via Secret defaults (DB2_USERNAME / DB2_PASSWORD).
+# Set them for the docker-compose DB2 instance unless the environment already provides them.
+os.environ.setdefault("DB2_USERNAME", "db2inst1")
+os.environ.setdefault("DB2_PASSWORD", "Passw0rd123!")
+
+# DB2 connection parameters for the docker-compose DB2 instance
+DB2_CONNECTION = {
+    "database": "testdb",
+    "hostname": "localhost",
+    "port": 50000,
+    "protocol": "TCPIP",
+}
 
 
 @pytest.fixture
 def connection_config():
     """
-    Provide DB2 connection configuration for tests.
+    Provide DB2 connection parameters for tests.
 
-    This fixture allows tests to access the connection config without
+    This fixture allows tests to access the connection parameters without
     duplicating the configuration details.
     """
-    return DB2_CONFIG
+    return DB2_CONNECTION
 
 
 @pytest.fixture
@@ -43,7 +47,7 @@ def document_store(request):
 
     # Use standard embedding dimension (768) for compatibility with mixin tests
     store = Db2DocumentStore(
-        connection_config=DB2_CONFIG,
+        **DB2_CONNECTION,
         table_name=table_name,
         embedding_dim=768,
         distance_metric="COSINE",

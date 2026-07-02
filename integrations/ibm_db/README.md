@@ -27,23 +27,20 @@ pip install ibm-db-haystack
 ### Basic Setup
 
 ```python
-from haystack_integrations.document_stores.ibm_db import Db2DocumentStore, Db2ConnectionConfig
+from haystack_integrations.document_stores.ibm_db import Db2DocumentStore
 from haystack_integrations.components.retrievers.ibm_db import Db2EmbeddingRetriever
+from haystack.utils import Secret
 from haystack import Document
 
-# Configure DB2 connection
-config = Db2ConnectionConfig(
+# Create document store. Credentials are read from the DB2_USERNAME / DB2_PASSWORD
+# environment variables by default; you can also pass them explicitly as Secrets.
+document_store = Db2DocumentStore(
     database="mydb",
     hostname="localhost",
     port=50000,
-    username="db2user",
-    password="password",
-    protocol="TCPIP"
-)
-
-# Create document store
-document_store = Db2DocumentStore(
-    connection_config=config,
+    username=Secret.from_env_var("DB2_USERNAME"),
+    password=Secret.from_env_var("DB2_PASSWORD"),
+    protocol="TCPIP",
     table_name="documents",
     embedding_dim=768,
     distance_metric="COSINE"
