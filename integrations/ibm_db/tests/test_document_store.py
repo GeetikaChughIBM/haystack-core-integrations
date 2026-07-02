@@ -27,7 +27,7 @@ from haystack.testing.document_store import (
     WriteDocumentsTest,
 )
 
-from haystack_integrations.document_stores.ibm_db import Db2ConnectionConfig, Db2DocumentStore
+from haystack_integrations.document_stores.ibm_db import Db2DocumentStore
 from haystack_integrations.document_stores.ibm_db.document_store import _parse_embedding, _row_to_document
 
 try:
@@ -164,7 +164,8 @@ class TestDocumentStore(
         assert "init_parameters" in data
 
         init_params = data["init_parameters"]
-        assert "connection_config" in init_params
+        assert init_params["database"] == document_store.database
+        assert init_params["hostname"] == document_store.hostname
         assert init_params["embedding_dim"] == 768
         assert init_params["distance_metric"] == "COSINE"
 
@@ -178,8 +179,8 @@ class TestDocumentStore(
         assert new_store.table_name == document_store.table_name
         assert new_store.embedding_dim == document_store.embedding_dim
         assert new_store.distance_metric == document_store.distance_metric
-        assert new_store.connection_config.database == document_store.connection_config.database
-        assert new_store.connection_config.hostname == document_store.connection_config.hostname
+        assert new_store.database == document_store.database
+        assert new_store.hostname == document_store.hostname
 
     def test_connection_reuse(self, document_store: Db2DocumentStore):
         """Test that connection is reused across operations."""
@@ -317,10 +318,10 @@ class TestDb2DocumentStoreUtils:
     @pytest.fixture
     def store(self):
         """A Db2DocumentStore built without connecting to a database."""
-        config = Db2ConnectionConfig(database="db", hostname="host", username="u", password="p")
         with patch.object(Db2DocumentStore, "_ensure_table_exists", return_value=None):
             return Db2DocumentStore(
-                connection_config=config,
+                database="db",
+                hostname="host",
                 table_name="unit_docs",
                 embedding_dim=4,
                 distance_metric="COSINE",
