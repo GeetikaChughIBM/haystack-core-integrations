@@ -5,7 +5,7 @@
 """Integration tests for Db2EmbeddingRetriever using live DB2 instance."""
 
 import sys
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from haystack.dataclasses import Document
