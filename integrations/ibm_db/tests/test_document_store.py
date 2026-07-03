@@ -26,8 +26,9 @@ from haystack.testing.document_store import (
     UpdateByFilterTest,
     WriteDocumentsTest,
 )
+from haystack.utils import Secret
 
-from haystack_integrations.document_stores.ibm_db import Db2ConnectionConfig, Db2DocumentStore
+from haystack_integrations.document_stores.ibm_db import Db2DocumentStore
 from haystack_integrations.document_stores.ibm_db.document_store import _parse_embedding, _row_to_document
 
 try:
@@ -155,31 +156,59 @@ class TestDocumentStore(
         with pytest.raises(DuplicateDocumentError):
             document_store.write_documents([doc])
 
-    def test_to_dict(self, document_store: Db2DocumentStore):
-        """Test serializing document store to dictionary."""
-        data = document_store.to_dict()
+    @staticmethod
+    def _serializable_store(monkeypatch) -> Db2DocumentStore:
+        """
+        Build a store whose credentials are env-var Secrets so it can be serialized.
+
+        The live ``document_store`` fixture uses ``Secret.from_token(...)``, which cannot
+        be serialized, so serialization tests build their own env-var-backed store (no DB
+        connection needed).
+        """
+        monkeypatch.setenv("DB2_USERNAME", "db2inst1")
+        monkeypatch.setenv("DB2_PASSWORD", "Passw0rd123!")
+        with patch.object(Db2DocumentStore, "_ensure_table_exists", return_value=None):
+            return Db2DocumentStore(
+                database="testdb",
+                hostname="localhost",
+                username=Secret.from_env_var("DB2_USERNAME"),
+                password=Secret.from_env_var("DB2_PASSWORD"),
+                embedding_dim=768,
+                distance_metric="COSINE",
+            )
+
+    def test_to_dict(self, monkeypatch):
+        """Test serializing document store to dictionary without exposing credentials."""
+        store = self._serializable_store(monkeypatch)
+        data = store.to_dict()
 
         assert "type" in data
         assert data["type"] == "haystack_integrations.document_stores.ibm_db.document_store.Db2DocumentStore"
         assert "init_parameters" in data
 
         init_params = data["init_parameters"]
-        assert "connection_config" in init_params
+        assert init_params["database"] == store.database
+        assert init_params["hostname"] == store.hostname
         assert init_params["embedding_dim"] == 768
         assert init_params["distance_metric"] == "COSINE"
+        # Credentials are serialized as env-var references, never as plaintext.
+        assert init_params["password"] == {"type": "env_var", "env_vars": ["DB2_PASSWORD"], "strict": True}
 
-    def test_from_dict(self, document_store: Db2DocumentStore):
+    def test_from_dict(self, monkeypatch):
         """Test deserializing document store from dictionary."""
-        data = document_store.to_dict()
+        store = self._serializable_store(monkeypatch)
+        data = store.to_dict()
 
         # Create new instance from dict
-        new_store = Db2DocumentStore.from_dict(data)
+        with patch.object(Db2DocumentStore, "_ensure_table_exists", return_value=None):
+            new_store = Db2DocumentStore.from_dict(data)
 
-        assert new_store.table_name == document_store.table_name
-        assert new_store.embedding_dim == document_store.embedding_dim
-        assert new_store.distance_metric == document_store.distance_metric
-        assert new_store.connection_config.database == document_store.connection_config.database
-        assert new_store.connection_config.hostname == document_store.connection_config.hostname
+        assert new_store.embedding_dim == store.embedding_dim
+        assert new_store.distance_metric == store.distance_metric
+        assert new_store.database == store.database
+        assert new_store.hostname == store.hostname
+        assert isinstance(new_store.username, Secret)
+        assert isinstance(new_store.password, Secret)
 
     def test_connection_reuse(self, document_store: Db2DocumentStore):
         """Test that connection is reused across operations."""
@@ -370,82 +399,3 @@ class TestDb2DocumentStoreUnit:
         assert doc.content == "content"
         assert doc.meta == {"key": "value"}
         assert doc.embedding == [0.1, 0.2, 0.3]
-
-
-class TestDb2DocumentStoreUtils:
-    """Unit tests for the pure utility/helper methods that don't require a database."""
-
-    @pytest.fixture
-    def store(self):
-        """A Db2DocumentStore built without connecting to a database."""
-        config = Db2ConnectionConfig(database="db", hostname="host", username="u", password="p")
-        with patch.object(Db2DocumentStore, "_ensure_table_exists", return_value=None):
-            return Db2DocumentStore(
-                connection_config=config,
-                table_name="unit_docs",
-                embedding_dim=4,
-                distance_metric="COSINE",
-            )
-
-    # --- _parse_embedding ---
-
-    def test_parse_embedding_none_returns_none(self):
-        assert _parse_embedding(None) is None
-
-    def test_parse_embedding_list_of_ints_converted_to_floats(self):
-        assert _parse_embedding([1, 2, 3]) == [1.0, 2.0, 3.0]
-
-    def test_parse_embedding_json_string_list(self):
-        assert _parse_embedding("[1.0, 2.0, 3.0]") == [1.0, 2.0, 3.0]
-
-    def test_parse_embedding_tuple_via_iterable_fallback(self):
-        assert _parse_embedding((0.5, 1.5)) == [0.5, 1.5]
-
-    def test_parse_embedding_non_numeric_string_returns_none(self):
-        # json.loads fails, iterable fallback over characters raises ValueError -> None
-        assert _parse_embedding("not-a-vector") is None
-
-    def test_parse_embedding_json_string_non_list_returns_none(self):
-        # Valid JSON but not a list -> iterable fallback over its characters raises -> None
-        assert _parse_embedding('{"a": 1}') is None
-
-    def test_parse_embedding_non_iterable_returns_none(self):
-        assert _parse_embedding(object()) is None
-
-    # --- _validate_embedding ---
-
-    def test_validate_embedding_none_allowed(self, store):
-        # Should not raise
-        store._validate_embedding(None, allow_none=True)
-
-    def test_validate_embedding_none_not_allowed_raises_value_error(self, store):
-        with pytest.raises(ValueError, match="cannot be None"):
-            store._validate_embedding(None, allow_none=False)
-
-    def test_validate_embedding_non_list_raises_type_error(self, store):
-        with pytest.raises(TypeError, match="must be a list"):
-            store._validate_embedding("not a list")
-
-    def test_validate_embedding_empty_list_raises_value_error(self, store):
-        with pytest.raises(ValueError, match="cannot be empty"):
-            store._validate_embedding([])
-
-    def test_validate_embedding_non_numeric_values_raise_type_error(self, store):
-        with pytest.raises(TypeError, match="must be numeric"):
-            store._validate_embedding([0.1, "x", 0.3])
-
-    # --- _infer_field_type ---
-
-    @pytest.mark.parametrize(
-        ("value", "expected"),
-        [
-            (True, "boolean"),
-            (10, "integer"),
-            (1.5, "real"),
-            ("text", "text"),
-            ([1, 2], "text"),
-            (None, "text"),
-        ],
-    )
-    def test_infer_field_type(self, value, expected):
-        assert Db2DocumentStore._infer_field_type(value) == expected

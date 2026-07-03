@@ -23,7 +23,7 @@ def document_store(connection_config, request):
     table_name = f"test_retriever_emb_{request.node.name}_{sys.version_info.major}_{sys.version_info.minor}"
 
     store = Db2DocumentStore(
-        connection_config=connection_config,
+        **connection_config,
         table_name=table_name,
         embedding_dim=4,  # Small dimension for testing
         distance_metric="COSINE",
