@@ -54,13 +54,10 @@ class Db2EmbeddingRetriever:
         """
         Retrieve documents by vector similarity.
 
-        Args:
-            query_embedding: Dense float vector from an embedder component.
-            filters: Runtime filters, merged with constructor filters according to filter_policy.
-            top_k: Override the constructor top_k for this call.
-
-        Returns:
-            ``{"documents": [Document, ...]}``
+        :param query_embedding: Dense float vector from an embedder component.
+        :param filters: Runtime filters, merged with constructor filters according to filter_policy.
+        :param top_k: Override the constructor top_k for this call.
+        :returns: A dictionary with key ``documents`` containing a list of matching :class:`Document` objects.
         """
         filters = apply_filter_policy(self.filter_policy, self.filters, filters)
         docs = self.document_store._embedding_retrieval(
