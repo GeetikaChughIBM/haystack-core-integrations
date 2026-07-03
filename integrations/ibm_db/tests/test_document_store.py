@@ -28,7 +28,7 @@ from haystack.testing.document_store import (
 )
 from haystack.utils import Secret
 
-from haystack_integrations.document_stores.ibm_db import Db2DocumentStore
+from haystack_integrations.document_stores.ibm_db import IBMDb2DocumentStore
 from haystack_integrations.document_stores.ibm_db.document_store import _parse_embedding, _row_to_document
 
 try:
@@ -103,7 +103,7 @@ class TestDocumentStore(
     GetMetadataFieldUniqueValuesTest,
 ):
     """
-    Test Db2DocumentStore using Haystack's standard mixin tests.
+    Test IBMDb2DocumentStore using Haystack's standard mixin tests.
 
     This class inherits from Haystack's mixin test classes which provide
     standardized tests for document store implementations.
@@ -148,7 +148,7 @@ class TestDocumentStore(
                         msg = f"Document {i} ({rec.id}): Embedding value {j} doesn't match: {r_val} vs {e_val}"
                         raise AssertionError(msg)
 
-    def test_write_documents(self, document_store: Db2DocumentStore):
+    def test_write_documents(self, document_store: IBMDb2DocumentStore):
         """Test basic write with duplicate handling - default policy is NONE."""
         doc = Document(content="test doc")
         assert document_store.write_documents([doc]) == 1
@@ -157,7 +157,7 @@ class TestDocumentStore(
             document_store.write_documents([doc])
 
     @staticmethod
-    def _serializable_store(monkeypatch) -> Db2DocumentStore:
+    def _serializable_store(monkeypatch) -> IBMDb2DocumentStore:
         """
         Build a store whose credentials are env-var Secrets so it can be serialized.
 
@@ -167,8 +167,8 @@ class TestDocumentStore(
         """
         monkeypatch.setenv("DB2_USERNAME", "db2inst1")
         monkeypatch.setenv("DB2_PASSWORD", "Passw0rd123!")
-        with patch.object(Db2DocumentStore, "_ensure_table_exists", return_value=None):
-            return Db2DocumentStore(
+        with patch.object(IBMDb2DocumentStore, "_ensure_table_exists", return_value=None):
+            return IBMDb2DocumentStore(
                 database="testdb",
                 hostname="localhost",
                 username=Secret.from_env_var("DB2_USERNAME"),
@@ -183,7 +183,7 @@ class TestDocumentStore(
         data = store.to_dict()
 
         assert "type" in data
-        assert data["type"] == "haystack_integrations.document_stores.ibm_db.document_store.Db2DocumentStore"
+        assert data["type"] == "haystack_integrations.document_stores.ibm_db.document_store.IBMDb2DocumentStore"
         assert "init_parameters" in data
 
         init_params = data["init_parameters"]
@@ -200,8 +200,8 @@ class TestDocumentStore(
         data = store.to_dict()
 
         # Create new instance from dict
-        with patch.object(Db2DocumentStore, "_ensure_table_exists", return_value=None):
-            new_store = Db2DocumentStore.from_dict(data)
+        with patch.object(IBMDb2DocumentStore, "_ensure_table_exists", return_value=None):
+            new_store = IBMDb2DocumentStore.from_dict(data)
 
         assert new_store.embedding_dim == store.embedding_dim
         assert new_store.distance_metric == store.distance_metric
@@ -210,7 +210,7 @@ class TestDocumentStore(
         assert isinstance(new_store.username, Secret)
         assert isinstance(new_store.password, Secret)
 
-    def test_connection_reuse(self, document_store: Db2DocumentStore):
+    def test_connection_reuse(self, document_store: IBMDb2DocumentStore):
         """Test that connection is reused across operations."""
         docs = [Document(id="1", content="test", embedding=[0.1] * 768)]
 
@@ -228,7 +228,7 @@ class TestDocumentStore(
         conn2 = document_store._get_connection()
         assert conn1 is conn2
 
-    def test_document_without_embedding(self, document_store: Db2DocumentStore):
+    def test_document_without_embedding(self, document_store: IBMDb2DocumentStore):
         """Test storing document without embedding."""
         doc = Document(id="no_emb", content="Document without embedding", meta={"test": True})
         document_store.write_documents([doc])
@@ -237,7 +237,7 @@ class TestDocumentStore(
         assert len(retrieved) == 1
         assert retrieved[0].embedding is None
 
-    def test_document_without_content(self, document_store: Db2DocumentStore):
+    def test_document_without_content(self, document_store: IBMDb2DocumentStore):
         """Test storing document without content."""
         doc = Document(id="no_content", content=None, meta={"test": True}, embedding=[0.1] * 768)
         document_store.write_documents([doc])
@@ -246,7 +246,7 @@ class TestDocumentStore(
         assert len(retrieved) == 1
         assert retrieved[0].content is None
 
-    def test_complex_metadata(self, document_store: Db2DocumentStore):
+    def test_complex_metadata(self, document_store: IBMDb2DocumentStore):
         """Test storing document with complex nested metadata."""
         doc = Document(
             id="complex_meta",
@@ -266,7 +266,7 @@ class TestDocumentStore(
         assert retrieved[0].meta["list"] == [1, 2, 3, "four"]
 
 
-class TestDb2DocumentStoreUtilMethods:
+class TestIBMDb2DocumentStoreUtilMethods:
     """Unit tests for pure utility methods: _parse_embedding, _validate_embedding, _infer_field_type."""
 
     # _parse_embedding
@@ -293,23 +293,23 @@ class TestDb2DocumentStoreUtilMethods:
 
     # _validate_embedding
     def test_validate_embedding_none_allowed(self):
-        Db2DocumentStore._validate_embedding(None, allow_none=True)
+        IBMDb2DocumentStore._validate_embedding(None, allow_none=True)
 
     def test_validate_embedding_none_not_allowed_raises(self):
         with pytest.raises(ValueError, match="cannot be None"):
-            Db2DocumentStore._validate_embedding(None, allow_none=False)
+            IBMDb2DocumentStore._validate_embedding(None, allow_none=False)
 
     def test_validate_embedding_non_list_raises_type_error(self):
         with pytest.raises(TypeError, match="must be a list"):
-            Db2DocumentStore._validate_embedding("not a list")
+            IBMDb2DocumentStore._validate_embedding("not a list")
 
     def test_validate_embedding_empty_list_raises_value_error(self):
         with pytest.raises(ValueError, match="cannot be empty"):
-            Db2DocumentStore._validate_embedding([])
+            IBMDb2DocumentStore._validate_embedding([])
 
     def test_validate_embedding_non_numeric_raises_type_error(self):
         with pytest.raises(TypeError, match="must be numeric"):
-            Db2DocumentStore._validate_embedding([0.1, "x", 0.3])
+            IBMDb2DocumentStore._validate_embedding([0.1, "x", 0.3])
 
     # _infer_field_type
     @pytest.mark.parametrize(
@@ -324,11 +324,11 @@ class TestDb2DocumentStoreUtilMethods:
         ],
     )
     def test_infer_field_type(self, value, expected):
-        assert Db2DocumentStore._infer_field_type(value) == expected
+        assert IBMDb2DocumentStore._infer_field_type(value) == expected
 
 
-class TestDb2DocumentStoreUnit:
-    """Unit tests for Db2DocumentStore that don't require a database."""
+class TestIBMDb2DocumentStoreUnit:
+    """Unit tests for IBMDb2DocumentStore that don't require a database."""
 
     def test_to_row_with_none_metadata(self, document_store):
         """Test _to_row with None metadata."""

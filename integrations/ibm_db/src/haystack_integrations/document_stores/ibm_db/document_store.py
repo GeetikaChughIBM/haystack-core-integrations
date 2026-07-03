@@ -79,7 +79,7 @@ def _row_to_document(row: tuple) -> Document:
     )
 
 
-class Db2DocumentStore:
+class IBMDb2DocumentStore:
     """
     IBM DB2 Document Store for Haystack using vector search capabilities.
 
@@ -965,12 +965,12 @@ class Db2DocumentStore:
         )
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Db2DocumentStore":
+    def from_dict(cls, data: dict[str, Any]) -> "IBMDb2DocumentStore":
         """
         Deserialize the document store from a dictionary.
 
         :param data: Dictionary representation
-        :return: Db2DocumentStore instance
+        :return: IBMDb2DocumentStore instance
         """
         deserialize_secrets_inplace(data["init_parameters"], keys=["username", "password"])
         return default_from_dict(cls, data)
@@ -1070,4 +1070,4 @@ class Db2DocumentStore:
         )
 
 
-__all__ = ["Db2DocumentStore"]
+__all__ = ["IBMDb2DocumentStore"]

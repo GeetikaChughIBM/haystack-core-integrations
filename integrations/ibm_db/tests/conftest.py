@@ -7,7 +7,7 @@ import sys
 import pytest
 from haystack.utils import Secret
 
-from haystack_integrations.document_stores.ibm_db import Db2DocumentStore
+from haystack_integrations.document_stores.ibm_db import IBMDb2DocumentStore
 
 # DB2 connection parameters for the docker-compose DB2 instance.
 # Credentials are Secrets built from plain-token values for the local docker instance.
@@ -47,7 +47,7 @@ def document_store(request):
     table_name = f"haystack_{request.node.name}_{sys.version_info.major}_{sys.version_info.minor}"
 
     # Use standard embedding dimension (768) for compatibility with mixin tests
-    store = Db2DocumentStore(
+    store = IBMDb2DocumentStore(
         **DB2_CONNECTION,
         table_name=table_name,
         embedding_dim=768,
