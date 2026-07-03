@@ -1027,7 +1027,7 @@ class Db2DocumentStore:
                 # In this case, we'll return empty results or filter them out
                 error_msg = str(e)
                 # Check both the error message and the __cause__ attribute
-                cause_msg = str(e.__cause__) if hasattr(e, "____cause__") and e.__cause__ else ""
+                cause_msg = str(e.__cause__) if hasattr(e, "__cause__") and e.__cause__ else ""
                 if (
                     "SQL0801N" in error_msg
                     or "Division by zero" in error_msg
