@@ -36,6 +36,15 @@ class Db2EmbeddingRetriever:
         top_k: int = 10,
         filter_policy: FilterPolicy = FilterPolicy.REPLACE,
     ) -> None:
+        """
+        Initialize the Db2EmbeddingRetriever.
+
+        :param document_store: An instance of `Db2DocumentStore`.
+        :param filters: Filters applied to the retrieved Documents.
+        :param top_k: Maximum number of Documents to return.
+        :param filter_policy: Policy to determine how filters are applied.
+        :raises TypeError: If `document_store` is not an instance of `Db2DocumentStore`.
+        """
         if not isinstance(document_store, Db2DocumentStore):
             msg = "document_store must be an instance of Db2DocumentStore"
             raise TypeError(msg)
