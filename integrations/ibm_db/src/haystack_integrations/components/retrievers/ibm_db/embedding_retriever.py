@@ -68,22 +68,6 @@ class Db2EmbeddingRetriever:
         )
         return {"documents": docs}
 
-    @component.output_types(documents=list[Document])
-    async def run_async(
-        self,
-        query_embedding: list[float],
-        filters: dict[str, Any] | None = None,
-        top_k: int | None = None,
-    ) -> dict[str, list[Document]]:
-        """Async variant of :meth:`run`."""
-        filters = apply_filter_policy(self.filter_policy, self.filters, filters)
-        docs = await self.document_store._embedding_retrieval_async(
-            query_embedding,
-            filters=filters,
-            top_k=top_k if top_k is not None else self.top_k,
-        )
-        return {"documents": docs}
-
     def to_dict(self) -> dict[str, Any]:
         """
         Serializes the component to a dictionary.
