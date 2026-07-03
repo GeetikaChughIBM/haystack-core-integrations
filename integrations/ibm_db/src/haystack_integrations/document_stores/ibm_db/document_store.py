@@ -351,12 +351,12 @@ class Db2DocumentStore:
         :raises TypeError: If embeddings have invalid types
         :raises DuplicateDocumentError: If a document with the same id already exists and policy is FAIL or NONE
         """
-        if not documents:
-            return 0
-
         if not isinstance(documents, list):
             msg = f"Expected a list of Document objects, got {type(documents)}"
             raise ValueError(msg)
+
+        if not documents:
+            return 0
 
         for doc in documents:
             if not isinstance(doc, Document):
