@@ -928,8 +928,6 @@ class Db2DocumentStore:
         """
         return await asyncio.to_thread(self.count_unique_metadata_by_filter, filters, metadata_fields)
 
-        return await asyncio.to_thread(self.get_metadata_fields_info)
-
     @staticmethod
     def _infer_field_type(value: Any) -> str:
         """
