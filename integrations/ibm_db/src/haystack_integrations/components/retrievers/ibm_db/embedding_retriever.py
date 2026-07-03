@@ -83,7 +83,16 @@ class Db2EmbeddingRetriever:
         filters: dict[str, Any] | None = None,
         top_k: int | None = None,
     ) -> dict[str, list[Document]]:
-        """Async variant of :meth:`run`."""
+        """
+        Async variant of :meth:`run`.
+
+        :param query_embedding: A dense float vector representing the query, typically produced by a text embedder component.
+        :param filters: Optional filters to narrow the search space. Merged with the constructor-level filters
+            according to the configured ``filter_policy``.
+        :param top_k: Maximum number of documents to return. Overrides the ``top_k`` set in the constructor for this call only.
+        :returns: A dictionary with key ``documents`` containing a list of matching :class:`Document` objects,
+            ranked by vector similarity.
+        """
         filters = apply_filter_policy(self.filter_policy, self.filters, filters)
         docs = await self.document_store._embedding_retrieval_async(
             query_embedding,
