@@ -17,7 +17,9 @@ class Db2EmbeddingRetriever:
     """
     Retrieves documents from a Db2DocumentStore using vector similarity.
 
-    Use inside a Haystack pipeline after a text embedder::
+    Use inside a Haystack pipeline after a text embedder:
+
+    .. code-block:: python
 
         pipeline.add_component("embedder", SentenceTransformersTextEmbedder())
         pipeline.add_component("retriever", Db2EmbeddingRetriever(
