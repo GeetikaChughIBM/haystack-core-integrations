@@ -19,13 +19,13 @@ class IBMDb2EmbeddingRetriever:
 
     Use inside a Haystack pipeline after a text embedder:
 
-    .. code-block:: python
-
-        pipeline.add_component("embedder", SentenceTransformersTextEmbedder())
-        pipeline.add_component("retriever", IBMDb2EmbeddingRetriever(
-            document_store=store, top_k=5
-        ))
-        pipeline.connect("embedder.embedding", "retriever.query_embedding")
+    ```python
+    pipeline.add_component("embedder", SentenceTransformersTextEmbedder())
+    pipeline.add_component("retriever", IBMDb2EmbeddingRetriever(
+        document_store=store, top_k=5
+    ))
+    pipeline.connect("embedder.embedding", "retriever.query_embedding")
+    ```
     """
 
     def __init__(
