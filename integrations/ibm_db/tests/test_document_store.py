@@ -148,7 +148,7 @@ class TestDocumentStore(
                         msg = f"Document {i} ({rec.id}): Embedding value {j} doesn't match: {r_val} vs {e_val}"
                         raise AssertionError(msg)
 
-    def test_write_documents(self, document_store: IBMDb2DocumentStore):
+    def test_write_documents_default_policy_none(self, document_store: IBMDb2DocumentStore):
         """Test basic write with duplicate handling - default policy is NONE."""
         doc = Document(content="test doc")
         assert document_store.write_documents([doc]) == 1
