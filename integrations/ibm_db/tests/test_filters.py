@@ -387,7 +387,7 @@ class TestFilterTranslatorEdgeCases:
         """Test IN operator with mixed types in list."""
         sql, params = _translate({"field": "meta.values", "operator": "in", "value": [1, "two", 3.0, True]})
         assert "IN (?, ?, ?, ?)" in sql
-        # Booleans are normalized to JSON strings ('true'/'false') for DB2 compatibility
+        # Booleans are normalized to JSON strings ('true'/'false') for Db2 compatibility
         assert params == [1, "two", 3.0, "true"]
 
     def test_deeply_nested_logical_operators(self):

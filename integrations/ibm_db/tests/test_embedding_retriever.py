@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""Integration tests for IBMDb2EmbeddingRetriever using live DB2 instance."""
+"""Integration tests for IBMDb2EmbeddingRetriever using live Db2 instance."""
 
 import sys
 from unittest.mock import Mock, patch

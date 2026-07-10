@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""Integration tests for IBM DB2 Document Store using Haystack mixin tests."""
+"""Integration tests for IBM Db2 Document Store using Haystack mixin tests."""
 
 import math
 from datetime import datetime, timedelta, timezone
@@ -103,7 +103,7 @@ class TestDocumentStore(
     GetMetadataFieldUniqueValuesTest,
 ):
     """
-    Test IBMDb2DocumentStore using Haystack's standard mixin tests.
+    Test IBM Db2 document store using Haystack's standard mixin tests.
 
     This class inherits from Haystack's mixin test classes which provide
     standardized tests for document store implementations.
@@ -114,7 +114,7 @@ class TestDocumentStore(
         """
         Assert that two lists of Documents are equal, ignoring order.
 
-        DB2 returns documents ordered by ID, but the expected list from Python
+        Db2 returns documents ordered by ID, but the expected list from Python
         is in insertion order. We sort both lists by ID before comparing.
         """
         # Sort both lists by document ID for consistent comparison
@@ -333,7 +333,7 @@ class TestIBMDb2DocumentStoreUtilMethods:
 
 
 class TestIBMDb2DocumentStoreUnit:
-    """Unit tests for IBMDb2DocumentStore that don't require a database."""
+    """Unit tests for IBM Db2 document store that don't require a database."""
 
     def test_to_row_with_none_metadata(self, document_store):
         """Test _to_row with None metadata."""

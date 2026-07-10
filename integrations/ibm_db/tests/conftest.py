@@ -9,7 +9,7 @@ from haystack.utils import Secret
 
 from haystack_integrations.document_stores.ibm_db import IBMDb2DocumentStore
 
-# DB2 connection parameters for the docker-compose DB2 instance.
+# Db2 connection parameters for the docker-compose Db2 instance.
 # Credentials are Secrets built from plain-token values for the local docker instance.
 _USERNAME = "db2inst1"
 _PASSWORD = "Passw0rd123!"
@@ -27,7 +27,7 @@ DB2_CONNECTION = {
 @pytest.fixture
 def connection_config():
     """
-    Provide DB2 connection parameters for tests.
+    Provide Db2 connection parameters for tests.
 
     This fixture allows tests to access the connection parameters without
     duplicating the configuration details.
