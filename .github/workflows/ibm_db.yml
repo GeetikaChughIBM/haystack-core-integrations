@@ -82,8 +82,8 @@ jobs:
         if: matrix.python-version == '3.10' && runner.os == 'Linux'
         run: hatch run fmt-check && hatch run test:types
 
-      - name: Start DB2 container
-        # DB2 takes time to initialize. --wait blocks until the healthcheck
+      - name: Start Db2 container
+        # Db2 takes time to initialize. --wait blocks until the healthcheck
         # passes (up to ~15 min per the timeout) before proceeding.
         run: docker compose up -d --wait
         timeout-minutes: 15
