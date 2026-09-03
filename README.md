@@ -4,7 +4,7 @@
 
 | Name                                                                                                                         |    Stmts |     Miss |   Branch |   BrPart |   Cover |   Missing |
 |----------------------------------------------------------------------------------------------------------------------------- | -------: | -------: | -------: | -------: | ------: | --------: |
-| src/haystack\_integrations/components/embedders/sentence\_transformers/embedding\_backend/backend.py                         |       28 |        0 |        4 |        0 |    100% |           |
+| src/haystack\_integrations/components/embedders/sentence\_transformers/embedding\_backend/backend.py                         |       32 |        2 |        6 |        1 |     92% |   117-118 |
 | src/haystack\_integrations/components/embedders/sentence\_transformers/embedding\_backend/sparse\_backend.py                 |       28 |        0 |        4 |        0 |    100% |           |
 | src/haystack\_integrations/components/embedders/sentence\_transformers/sentence\_transformers\_doc\_image\_embedder.py       |       77 |        0 |       22 |        1 |     99% | 179-\>181 |
 | src/haystack\_integrations/components/embedders/sentence\_transformers/sentence\_transformers\_document\_embedder.py         |       69 |        2 |       18 |        1 |     97% |  173, 265 |
@@ -13,7 +13,7 @@
 | src/haystack\_integrations/components/embedders/sentence\_transformers/sentence\_transformers\_text\_embedder.py             |       59 |        1 |       14 |        0 |     99% |       160 |
 | src/haystack\_integrations/components/rankers/sentence\_transformers/sentence\_transformers\_diversity.py                    |      151 |        5 |       40 |        5 |     95% |202-\>exit, 242, 257, 388-389, 424 |
 | src/haystack\_integrations/components/rankers/sentence\_transformers/sentence\_transformers\_similarity.py                   |       78 |        1 |       20 |        1 |     98% |144, 150-\>exit |
-| **TOTAL**                                                                                                                    |  **601** |   **11** |  **150** |    **8** | **97%** |           |
+| **TOTAL**                                                                                                                    |  **605** |   **13** |  **152** |    **9** | **97%** |           |
 
 
 ## Setup coverage badge
