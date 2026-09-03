@@ -4,13 +4,13 @@
 
 | Name                                                                                       |    Stmts |     Miss |   Branch |   BrPart |   Cover |   Missing |
 |------------------------------------------------------------------------------------------- | -------: | -------: | -------: | -------: | ------: | --------: |
-| src/haystack\_integrations/components/retrievers/azure\_ai\_search/bm25\_retriever.py      |       39 |        0 |        6 |        1 |     98% |   95-\>97 |
-| src/haystack\_integrations/components/retrievers/azure\_ai\_search/embedding\_retriever.py |       39 |        0 |        6 |        1 |     98% |   92-\>94 |
-| src/haystack\_integrations/components/retrievers/azure\_ai\_search/hybrid\_retriever.py    |       39 |        0 |        6 |        1 |     98% |   95-\>97 |
-| src/haystack\_integrations/document\_stores/azure\_ai\_search/document\_store.py           |      362 |      137 |      126 |       11 |     61% |68-\>73, 210, 224-231, 239-240, 290-314, 396, 404-405, 414-\>417, 419-420, 494-503, 513-517, 528-529, 542-546, 566-\>570, 593-608, 616-620, 629-658, 671-686, 700-734, 743, 754-755, 767-772, 778-807, 842-849, 882-885, 915-917, 953-962 |
+| src/haystack\_integrations/components/retrievers/azure\_ai\_search/bm25\_retriever.py      |       41 |        0 |        6 |        1 |     98% |   95-\>97 |
+| src/haystack\_integrations/components/retrievers/azure\_ai\_search/embedding\_retriever.py |       41 |        0 |        6 |        1 |     98% |   92-\>94 |
+| src/haystack\_integrations/components/retrievers/azure\_ai\_search/hybrid\_retriever.py    |       41 |        0 |        6 |        1 |     98% |   95-\>97 |
+| src/haystack\_integrations/document\_stores/azure\_ai\_search/document\_store.py           |      375 |      139 |      132 |        9 |     62% |69-\>74, 211, 225-232, 240-241, 291-315, 410, 418-419, 428-\>431, 437-440, 514-523, 533-537, 548-549, 562-566, 625-640, 648-652, 661-690, 703-718, 732-766, 775, 786-787, 799-804, 810-839, 874-881, 914-917, 947-949, 985-994 |
 | src/haystack\_integrations/document\_stores/azure\_ai\_search/errors.py                    |        8 |        0 |        0 |        0 |    100% |           |
-| src/haystack\_integrations/document\_stores/azure\_ai\_search/filters.py                   |       71 |        0 |       32 |        0 |    100% |           |
-| **TOTAL**                                                                                  |  **558** |  **137** |  **176** |   **14** | **74%** |           |
+| src/haystack\_integrations/document\_stores/azure\_ai\_search/filters.py                   |       77 |        0 |       36 |        0 |    100% |           |
+| **TOTAL**                                                                                  |  **583** |  **139** |  **186** |   **12** | **75%** |           |
 
 
 ## Setup coverage badge
