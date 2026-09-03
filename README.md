@@ -4,13 +4,13 @@
 
 | Name                                                                              |    Stmts |     Miss |   Branch |   BrPart |   Cover |   Missing |
 |---------------------------------------------------------------------------------- | -------: | -------: | -------: | -------: | ------: | --------: |
-| src/haystack\_integrations/components/retrievers/weaviate/bm25\_retriever.py      |       32 |        0 |        2 |        0 |    100% |           |
-| src/haystack\_integrations/components/retrievers/weaviate/embedding\_retriever.py |       47 |        0 |        8 |        0 |    100% |           |
-| src/haystack\_integrations/components/retrievers/weaviate/hybrid\_retriever.py    |       47 |        0 |        8 |        0 |    100% |           |
+| src/haystack\_integrations/components/retrievers/weaviate/bm25\_retriever.py      |       36 |        0 |        2 |        0 |    100% |           |
+| src/haystack\_integrations/components/retrievers/weaviate/embedding\_retriever.py |       51 |        0 |        8 |        0 |    100% |           |
+| src/haystack\_integrations/components/retrievers/weaviate/hybrid\_retriever.py    |       51 |        0 |        8 |        0 |    100% |           |
 | src/haystack\_integrations/document\_stores/weaviate/\_filters.py                 |      148 |       82 |       66 |        7 |     42% |22-23, 43, 96-102, 104-105, 113-116, 122, 127-130, 136-154, 158-176, 180-198, 202-220, 224-228, 232-236, 246-249, 268-\>276, 295-296 |
 | src/haystack\_integrations/document\_stores/weaviate/auth.py                      |       85 |        0 |        6 |        0 |    100% |           |
-| src/haystack\_integrations/document\_stores/weaviate/document\_store.py           |      644 |      414 |      208 |       22 |     33% |189, 208, 226, 234, 253, 271, 281-283, 288-293, 299-302, 308-311, 348, 350, 352, 362-363, 369-371, 382-385, 396-400, 420-427, 447-455, 466-501, 515-551, 568-590, 606-630, 653-680, 703-732, 748-749, 753-\>763, 775, 780, 791, 797-800, 805-811, 814-821, 847-849, 855-884, 900-907, 923-930, 956-973, 982-1002, 1012-1037, 1069, 1071-\>1051, 1104-1107, 1137, 1147-1148, 1156-1158, 1175-1204, 1223-1255, 1273-1279, 1295-1313, 1333, 1354, 1361, 1374-1379, 1381-1382, 1396-1479, 1484-1495, 1500-1513, 1527-1539, 1549-1567, 1578-1592, 1603-1619 |
-| **TOTAL**                                                                         | **1003** |  **496** |  **298** |   **29** | **46%** |           |
+| src/haystack\_integrations/document\_stores/weaviate/document\_store.py           |      649 |      406 |      210 |       22 |     35% |190, 209, 227, 235, 254, 272, 282-284, 289-294, 351, 353, 355, 365-366, 372-374, 385-388, 399-403, 423-430, 450-458, 469-504, 518-554, 571-593, 609-633, 655-664, 696-719, 751-776, 792-793, 797-\>807, 819, 824, 835, 841-844, 849-855, 858-865, 891-893, 899-928, 944-951, 967-974, 1000-1017, 1026-1046, 1056-1081, 1113, 1115-\>1095, 1148-1151, 1181, 1191-1192, 1200-1202, 1219-1248, 1267-1299, 1317-1323, 1339-1357, 1377, 1398, 1405, 1418-1423, 1425-1426, 1440-1523, 1528-1539, 1544-1557, 1571-1583, 1593-1611, 1622-1636, 1647-1663 |
+| **TOTAL**                                                                         | **1020** |  **488** |  **300** |   **29** | **48%** |           |
 
 
 ## Setup coverage badge
