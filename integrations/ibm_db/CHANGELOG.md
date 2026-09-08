@@ -1,5 +1,22 @@
 # Changelog
 
+## [integrations/ibm_db-v0.4.0] - unreleased
+
+### 🚀 Features
+
+- `IBMDb2DocumentStore` async surface — add `asyncio.to_thread` wrappers for all public methods:
+  `count_documents_async`, `filter_documents_async`, `write_documents_async`,
+  `delete_documents_async`, `delete_all_documents_async`, `delete_by_filter_async`,
+  `update_by_filter_async`, `count_documents_by_filter_async`,
+  `count_unique_metadata_by_filter_async`, `get_metadata_fields_info_async`,
+  `get_metadata_field_min_max_async`, `get_metadata_field_unique_values_async`,
+  `_embedding_retrieval_async`, and `close_async`.
+- `IBMDb2EmbeddingRetriever` — add `run_async` and `close_async` methods.
+- Add async integration test suite `tests/test_document_store_async.py`.
+- Add async retriever test suite `tests/test_embedding_retriever_async.py`.
+- Add `pytest-asyncio` to test dependencies; set `asyncio_mode = "auto"`.
+
+
 ## [integrations/ibm_db-v0.3.0] - 2026-09-01
 
 ### 🐛 Bug Fixes
