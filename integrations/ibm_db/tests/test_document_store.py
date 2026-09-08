@@ -340,10 +340,6 @@ class TestIBMDb2DocumentStoreUnit:
         """Provide a mocked IBMDb2DocumentStore without a live DB connection."""
         monkeypatch.setenv("DB2_USERNAME", "db2inst1")
         monkeypatch.setenv("DB2_PASSWORD", "Passw0rd123!")
-        from unittest.mock import patch
-
-        from haystack.utils import Secret
-
         with patch.object(IBMDb2DocumentStore, "_ensure_table_exists", return_value=None):
             store = IBMDb2DocumentStore(
                 database="testdb",

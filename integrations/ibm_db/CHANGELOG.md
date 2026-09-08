@@ -1,5 +1,11 @@
 # Changelog
 
+## [unreleased]
+
+### 🚀 Features
+
+- Add async surface (asyncio.to_thread wrappers) to IBMDb2DocumentStore and IBMDb2EmbeddingRetriever
+
 ## [integrations/ibm_db-v0.1.0] - 2025-07-01
 
 ### 🚀 Features

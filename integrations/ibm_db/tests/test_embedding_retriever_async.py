@@ -6,7 +6,6 @@
 
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
 from haystack.dataclasses import Document
 from haystack.document_stores.types import FilterPolicy
 
