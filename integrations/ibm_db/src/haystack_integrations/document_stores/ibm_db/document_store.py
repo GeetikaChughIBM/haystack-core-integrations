@@ -349,17 +349,18 @@ class IBMDb2DocumentStore:
                     msg = f"Invalid embedding for document '{doc.id}': {e}"
                     raise type(e)(msg) from e
 
+        if policy not in (DuplicatePolicy.NONE, DuplicatePolicy.FAIL, DuplicatePolicy.SKIP, DuplicatePolicy.OVERWRITE):
+            msg = f"Unsupported duplicate policy: {policy}"
+            raise ValueError(msg)
+
         conn = self._get_connection()
 
         if policy in (DuplicatePolicy.NONE, DuplicatePolicy.FAIL):
             return self._insert_documents(conn, documents)
         elif policy == DuplicatePolicy.SKIP:
             return self._skip_duplicate_documents(conn, documents)
-        elif policy == DuplicatePolicy.OVERWRITE:
-            return self._upsert_documents(conn, documents)
         else:
-            msg = f"Unsupported duplicate policy: {policy}"
-            raise ValueError(msg)
+            return self._upsert_documents(conn, documents)
 
     def _insert_documents(self, conn: ibm_db_dbi.Connection, documents: list[Document]) -> int:
         """Insert documents and fail on duplicates via database integrity errors."""

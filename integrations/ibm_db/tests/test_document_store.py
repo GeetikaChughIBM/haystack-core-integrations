@@ -335,6 +335,26 @@ class TestIBMDb2DocumentStoreUtilMethods:
 class TestIBMDb2DocumentStoreUnit:
     """Unit tests for IBMDb2DocumentStore that don't require a database."""
 
+    @pytest.fixture
+    def document_store(self, monkeypatch):
+        """Provide a mocked IBMDb2DocumentStore without a live DB connection."""
+        monkeypatch.setenv("DB2_USERNAME", "db2inst1")
+        monkeypatch.setenv("DB2_PASSWORD", "Passw0rd123!")
+        from unittest.mock import patch
+
+        from haystack.utils import Secret
+
+        with patch.object(IBMDb2DocumentStore, "_ensure_table_exists", return_value=None):
+            store = IBMDb2DocumentStore(
+                database="testdb",
+                hostname="localhost",
+                username=Secret.from_env_var("DB2_USERNAME"),
+                password=Secret.from_env_var("DB2_PASSWORD"),
+                embedding_dim=768,
+                distance_metric="COSINE",
+            )
+        return store
+
     def test_to_row_with_none_metadata(self, document_store):
         """Test _to_row with None metadata."""
         doc = Document(id="1", content="test", meta=None, embedding=[0.1] * 768)
