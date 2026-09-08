@@ -4,6 +4,7 @@
 
 """IBM DB2 Document Store for Haystack."""
 
+import asyncio
 import json
 import logging
 import threading
@@ -937,5 +938,164 @@ class IBMDb2DocumentStore:
 
         return documents
 
+    async def count_documents_async(self) -> int:
+        """
+        Count all documents in the store asynchronously.
+
+        :return: Number of documents
+        """
+        return await asyncio.to_thread(self.count_documents)
+
+    async def count_documents_by_filter_async(self, filters: dict[str, Any] | None = None) -> int:
+        """
+        Count documents matching the provided filters asynchronously.
+
+        :param filters: Filters to apply.
+        :return: Number of documents matching the filters
+        """
+        return await asyncio.to_thread(self.count_documents_by_filter, filters)
+
+    async def write_documents_async(
+        self,
+        documents: list[Document],
+        policy: DuplicatePolicy = DuplicatePolicy.NONE,
+    ) -> int:
+        """
+        Write documents to the store asynchronously.
+
+        :param documents: List of documents to write
+        :param policy: Policy for handling duplicate documents
+        :return: Number of documents written
+        """
+        return await asyncio.to_thread(self.write_documents, documents, policy)
+
+    async def filter_documents_async(self, filters: dict[str, Any] | None = None) -> list[Document]:
+        """
+        Filter documents asynchronously.
+
+        :param filters: Optional filter dictionary.
+        :return: List of matching documents.
+        """
+        return await asyncio.to_thread(self.filter_documents, filters)
+
+    async def delete_documents_async(self, document_ids: list[str]) -> None:
+        """
+        Delete documents by their IDs asynchronously.
+
+        :param document_ids: List of document IDs to delete
+        """
+        await asyncio.to_thread(self.delete_documents, document_ids)
+
+    async def delete_by_filter_async(self, filters: dict[str, Any] | None = None) -> int:
+        """
+        Delete documents matching the provided filters asynchronously.
+
+        :param filters: Filters to apply.
+        :return: Number of documents deleted
+        """
+        return await asyncio.to_thread(self.delete_by_filter, filters)
+
+    async def delete_all_documents_async(self, recreate_index: bool = False) -> int:
+        """
+        Delete all documents from the document store asynchronously.
+
+        :param recreate_index: If True, recreate the table after deletion
+        :return: Number of documents deleted
+        """
+        return await asyncio.to_thread(self.delete_all_documents, recreate_index)
+
+    async def update_by_filter_async(
+        self, filters: dict[str, Any] | None = None, meta: dict[str, Any] | None = None
+    ) -> int:
+        """
+        Update documents matching the provided filters asynchronously.
+
+        :param filters: Filters to apply.
+        :param meta: Dictionary of metadata fields to update
+        :return: Number of documents updated
+        """
+        return await asyncio.to_thread(self.update_by_filter, filters, meta)
+
+    async def count_unique_metadata_by_filter_async(
+        self, filters: dict[str, Any] | None = None, metadata_fields: list[str] | None = None
+    ) -> dict[str, int]:
+        """
+        Count unique values for metadata fields asynchronously.
+
+        :param filters: Optional filters to apply before counting
+        :param metadata_fields: List of metadata field names to count unique values for
+        :return: Dictionary mapping field names to their unique value counts
+        """
+        return await asyncio.to_thread(self.count_unique_metadata_by_filter, filters, metadata_fields)
+
+    async def get_metadata_fields_info_async(self) -> dict[str, dict[str, Any]]:
+        """
+        Get information about all metadata fields asynchronously.
+
+        :return: Dictionary mapping field names to their type information
+        """
+        return await asyncio.to_thread(self.get_metadata_fields_info)
+
+    async def get_metadata_field_min_max_async(self, field: str) -> dict[str, Any]:
+        """
+        Get the minimum and maximum values for a numeric metadata field asynchronously.
+
+        :param field: The metadata field name
+        :return: Dictionary with 'min' and 'max' keys
+        """
+        return await asyncio.to_thread(self.get_metadata_field_min_max, field)
+
+    async def get_metadata_field_unique_values_async(self, field: str) -> tuple[list[Any], int]:
+        """
+        Get all unique values for a given metadata field asynchronously.
+
+        :param field: The metadata field name
+        :return: Tuple of (unique_values_list, count)
+        """
+        values = await asyncio.to_thread(self.get_metadata_field_unique_values, field)
+        return values, len(values)
+
+    async def _embedding_retrieval_async(
+        self,
+        query_embedding: list[float],
+        *,
+        filters: dict[str, Any] | None = None,
+        top_k: int = 10,
+    ) -> list[Document]:
+        """
+        Retrieve documents by embedding similarity asynchronously.
+
+        :param query_embedding: Query embedding vector
+        :param filters: Optional filters to apply
+        :param top_k: Number of documents to retrieve
+        :return: List of documents with similarity scores
+        """
+        return await asyncio.to_thread(
+            self._embedding_retrieval,
+            query_embedding,
+            filters=filters,
+            top_k=top_k,
+        )
+
+    def close(self) -> None:
+        """
+        Close the database connection and release resources.
+        """
+        with self._connection_lock:
+            if self._connection is not None:
+                try:
+                    self._connection.close()
+                except Exception:
+                    pass
+                finally:
+                    self._connection = None
+
+    async def close_async(self) -> None:
+        """
+        Close the database connection asynchronously.
+        """
+        await asyncio.to_thread(self.close)
+
 
 __all__ = ["IBMDb2DocumentStore"]
+
