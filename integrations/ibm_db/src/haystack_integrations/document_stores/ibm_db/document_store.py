@@ -4,6 +4,7 @@
 
 """IBM Db2 Document Store for Haystack."""
 
+import asyncio
 import json
 import logging
 import threading
@@ -953,6 +954,173 @@ class IBMDb2DocumentStore:
             documents.append(doc)
 
         return documents
+
+    # -------------------------------------------------------------------------
+    # Async surface — every method delegates to the corresponding sync method
+    # via asyncio.to_thread so the event loop is never blocked.
+    # ibm_db_dbi is a purely synchronous driver; there is no async variant.
+    # -------------------------------------------------------------------------
+
+    async def count_documents_async(self) -> int:
+        """
+        Asynchronously count all documents in the store.
+
+        :return: Number of documents.
+        """
+        return await asyncio.to_thread(self.count_documents)
+
+    async def filter_documents_async(self, filters: dict[str, Any] | None = None) -> list[Document]:
+        """
+        Asynchronously filter documents using SQL-based metadata and field conditions.
+
+        :param filters: Optional filter dictionary to constrain the returned documents.
+        :return: List of matching documents.
+        """
+        return await asyncio.to_thread(self.filter_documents, filters)
+
+    async def write_documents_async(
+        self,
+        documents: list[Document],
+        policy: DuplicatePolicy = DuplicatePolicy.NONE,
+    ) -> int:
+        """
+        Asynchronously write documents to the store.
+
+        :param documents: List of documents to write.
+        :param policy: Policy for handling duplicate documents.
+        :return: Number of documents written.
+        """
+        return await asyncio.to_thread(self.write_documents, documents, policy)
+
+    async def delete_documents_async(self, document_ids: list[str]) -> None:
+        """
+        Asynchronously delete documents by their IDs.
+
+        :param document_ids: List of document IDs to delete.
+        """
+        return await asyncio.to_thread(self.delete_documents, document_ids)
+
+    async def delete_all_documents_async(self, recreate_index: bool = False) -> int:
+        """
+        Asynchronously delete all documents from the document store.
+
+        :param recreate_index: If True, recreate the table after deletion.
+        :return: Number of documents deleted.
+        """
+        return await asyncio.to_thread(self.delete_all_documents, recreate_index)
+
+    async def delete_by_filter_async(self, filters: dict[str, Any] | None = None) -> int:
+        """
+        Asynchronously delete documents that match the provided filters.
+
+        :param filters: Filters to apply. See Haystack documentation for filter syntax.
+        :return: Number of documents deleted.
+        """
+        return await asyncio.to_thread(self.delete_by_filter, filters)
+
+    async def update_by_filter_async(
+        self,
+        filters: dict[str, Any] | None = None,
+        meta: dict[str, Any] | None = None,
+    ) -> int:
+        """
+        Asynchronously update documents that match the provided filters.
+
+        :param filters: Filters to apply. See Haystack documentation for filter syntax.
+        :param meta: Dictionary of metadata fields to update.
+        :return: Number of documents updated.
+        """
+        return await asyncio.to_thread(self.update_by_filter, filters, meta)
+
+    async def count_documents_by_filter_async(self, filters: dict[str, Any] | None = None) -> int:
+        """
+        Asynchronously count documents that match the provided filters.
+
+        :param filters: Filters to apply. See Haystack documentation for filter syntax.
+        :return: Number of documents matching the filters.
+        """
+        return await asyncio.to_thread(self.count_documents_by_filter, filters)
+
+    async def count_unique_metadata_by_filter_async(
+        self,
+        filters: dict[str, Any] | None = None,
+        metadata_fields: list[str] | None = None,
+    ) -> dict[str, int]:
+        """
+        Asynchronously count unique values for specified metadata fields, optionally filtered.
+
+        :param filters: Optional filters to apply before counting.
+        :param metadata_fields: List of metadata field names to count unique values for.
+        :return: Dictionary mapping field names to their unique value counts.
+        """
+        return await asyncio.to_thread(self.count_unique_metadata_by_filter, filters, metadata_fields)
+
+    async def get_metadata_fields_info_async(self) -> dict[str, dict[str, Any]]:
+        """
+        Asynchronously get information about all metadata fields including their types.
+
+        :return: Dictionary mapping field names to their type information.
+        """
+        return await asyncio.to_thread(self.get_metadata_fields_info)
+
+    async def get_metadata_field_min_max_async(self, field: str) -> dict[str, Any]:
+        """
+        Asynchronously get the minimum and maximum values for a numeric metadata field.
+
+        :param field: The metadata field name (can include 'meta.' prefix).
+        :return: Dictionary with 'min' and 'max' keys.
+        """
+        return await asyncio.to_thread(self.get_metadata_field_min_max, field)
+
+    async def get_metadata_field_unique_values_async(
+        self,
+        metadata_field: str,
+        search_term: str | None = None,
+        from_: int = 0,
+        size: int = 10,
+        filters: dict[str, Any] | None = None,
+    ) -> tuple[list[Any], int]:
+        """
+        Asynchronously get unique values for a given metadata field, optionally filtered by a search term.
+
+        :param metadata_field: The metadata field name (can include or omit the 'meta.' prefix).
+        :param search_term: Optional term to filter the returned values by.
+        :param from_: The offset for pagination (0-based).
+        :param size: The number of unique values to return.
+        :param filters: Optional filters to restrict the documents considered.
+        :return: A tuple containing (list of unique values, total count of unique values).
+        """
+        return await asyncio.to_thread(
+            self.get_metadata_field_unique_values,
+            metadata_field,
+            search_term,
+            from_,
+            size,
+            filters,
+        )
+
+    async def _embedding_retrieval_async(
+        self,
+        query_embedding: list[float],
+        *,
+        filters: dict[str, Any] | None = None,
+        top_k: int = 10,
+    ) -> list[Document]:
+        """
+        Asynchronously retrieve documents by embedding similarity.
+
+        :param query_embedding: Query embedding vector.
+        :param filters: Optional filters to apply.
+        :param top_k: Number of documents to retrieve.
+        :return: List of documents with similarity scores.
+        """
+        return await asyncio.to_thread(self._embedding_retrieval, query_embedding, filters=filters, top_k=top_k)
+
+    async def close_async(self) -> None:
+        """
+        Asynchronously release the associated resources.
+        """
+        await asyncio.to_thread(self.close)
 
 
 __all__ = ["IBMDb2DocumentStore"]
